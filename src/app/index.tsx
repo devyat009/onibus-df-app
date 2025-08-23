@@ -14,7 +14,9 @@ import {
   TouchableOpacity,
   View
 } from "react-native";
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MapLibreBasic from '../components/MapLibre';
+import StopsPainelMenu from '../components/StopsMenuComponent/stopsPainel.component';
 import { useLocation } from "../hooks/useLocation";
 
 export default function Index() {
@@ -65,15 +67,13 @@ export default function Index() {
   const PANEL_MIN_HEIGHT = 60;
   const PANEL_MID_HEIGHT = 300;
   const PANEL_MAX_HEIGHT = SCREEN_HEIGHT;
+  // Safe area insets 
+  const insets = useSafeAreaInsets();
 
    // Animação de abrir/fechar
   const togglePanel = () => {
-    Animated.spring(panelAnim, {
-      toValue: panelOpen ? 0 : 1,
-      useNativeDriver: false,
-      friction: 10, // ajuste para suavidade
-      tension: 5, // ajuste para suavidade
-    }).start();
+    const newPanelState = panelOpen ? 0 : 1;
+    setPanelState(newPanelState);
     setPanelOpen(!panelOpen);
   };
   // Atualiza altura do painel conforme estado
@@ -87,7 +87,7 @@ export default function Index() {
       friction: 10, // ajuste para suavidade
       tension: 5, // ajuste para suavidade
     }).start();
-  }, [panelState]);
+  }, [panelState, panelAnim]);
 
   // Altura do painel
   const panelHeight = panelAnim.interpolate({
@@ -125,12 +125,30 @@ export default function Index() {
     },
     onPanResponderRelease: (_, gestureState) => {
       // Decide para qual estado vai ao soltar
-      if (gestureState.dy < -100) {
-        setPanelState(2); // expandir para máximo
-      } else if (gestureState.dy > 100) {
-        setPanelState(0); // fechar
+      if (panelState === 2 && gestureState.dy > 50) {
+        // Se estava no máximo e arrastou para baixo, volta para médio
+        setPanelState(1);
+        setPanelOpen(true);
+      } else if (panelState === 1 && gestureState.dy > 50) {
+        // Se estava no médio e arrastou para baixo, fecha
+        setPanelState(0);
+        setPanelOpen(false);
+      } else if (panelState === 1 && gestureState.dy < -50) {
+        // Se estava no médio e arrastou para cima, vai para máximo
+        setPanelState(2);
+        setPanelOpen(true);
+      } else if (panelState === 2 && gestureState.dy < -50) {
+        // Se já está no máximo e arrasta mais pra cima, mantém no máximo
+        setPanelState(2);
+        setPanelOpen(true);
+      } else if (panelState === 0 && gestureState.dy < -50) {
+        // Se fechado e arrasta pra cima, abre médio
+        setPanelState(1);
+        setPanelOpen(true);
       } else {
-        setPanelState(1); // voltar para médio
+        // Mantém o estado atual
+        setPanelState(panelState);
+        setPanelOpen(panelState !== 0);
       }
     },
   });
@@ -251,28 +269,58 @@ export default function Index() {
   }, [bounds, showOnlyActiveBuses]);
   
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: appTheme === 'dark' ? '#000' : '#fff' }]}>
-      <View style={[styles.header, { backgroundColor: appTheme === 'dark' ? '#000' : '#fff' }]}>
-        <Text style={[styles.title, { color: appTheme === 'dark' ? '#fff' : '#333' }]}>ÔnibusDF</Text>
+    <SafeAreaView
+      style={[
+        styles.container,
+        { backgroundColor: appTheme === "dark" ? "#000" : "#fff" },
+      ]}
+    >
+      <View
+        style={[
+          styles.header,
+          { backgroundColor: appTheme === "dark" ? "#000" : "#fff" },
+        ]}
+      >
+        <Text
+          style={[
+            styles.title,
+            { color: appTheme === "dark" ? "#fff" : "#333" },
+          ]}
+        >
+          ÔnibusDF
+        </Text>
       </View>
-      <Animated.View style={[styles.mapContainer, { paddingBottom: mapPaddingBottom }]}>
-
+      <Animated.View
+        style={[
+          styles.mapContainer,
+          { paddingBottom: mapPaddingBottom, marginBottom: 5 },
+        ]}
+      >
         {/* Botões no topo direito */}
         <View style={styles.topRightButtons}>
           {/* Botão de configurações */}
           <TouchableOpacity
-            style={[styles.configButton, { backgroundColor: appTheme === 'dark' ? '#333' : '#fff' }]}
+            style={[
+              styles.configButton,
+              { backgroundColor: appTheme === "dark" ? "#333" : "#fff" },
+            ]}
             onPress={handleConfigPress}
           >
             <Ionicons
               name="settings"
               size={28}
-              color={appTheme === 'dark' ? '#999' : '#007AFF'}
+              color={appTheme === "dark" ? "#999" : "#007AFF"}
             />
           </TouchableOpacity>
           {/* Botão de localização */}
           <TouchableOpacity
-            style={[styles.locateButton, { backgroundColor: appTheme === 'dark' ? '#333' : '#fff', marginBottom: 12 }]}
+            style={[
+              styles.locateButton,
+              {
+                backgroundColor: appTheme === "dark" ? "#333" : "#fff",
+                marginBottom: 12,
+              },
+            ]}
             onPress={handleLocatePress}
             disabled={loading.location}
           >
@@ -285,62 +333,121 @@ export default function Index() {
         </View>
 
         <MapLibreBasic
-          latitude={cameraMode === 'auto' ? mapCenter.latitude : undefined}
-          longitude={cameraMode === 'auto' ? mapCenter.longitude : undefined}
-          zoom={cameraMode === 'auto' ? mapCenter.zoom : undefined}
+          latitude={cameraMode === "auto" ? mapCenter.latitude : undefined}
+          longitude={cameraMode === "auto" ? mapCenter.longitude : undefined}
+          zoom={cameraMode === "auto" ? mapCenter.zoom : undefined}
           style={{ flex: 1 }}
-          theme={mapTheme as 'light' | 'dark'} // Usar tema do mapa do store
+          theme={mapTheme as "light" | "dark"} // Usar tema do mapa do store
           // Paradas de onibus
-          busStopMarker={showStopsStore ? stops.map(stop => ({
-            id: stop.id,
-            latitude: stop.latitude,
-            longitude: stop.longitude,
-            title: stop.nome,
-          })) : []}
-          onBusStopMarkerPress={marker => Alert.alert('Parada', marker.title || marker.id)}
+          busStopMarker={
+            showStopsStore
+              ? stops.map((stop) => ({
+                  id: stop.id,
+                  latitude: stop.latitude,
+                  longitude: stop.longitude,
+                  title: stop.nome,
+                }))
+              : []
+          }
+          onBusStopMarkerPress={(marker) =>
+            Alert.alert("Parada", marker.title || marker.id)
+          }
           // Map change
           onRegionDidChange={handleRegionDidChange}
           // Traffic
           showTraffic={showTraffic}
           // Onibus
           buses={buses}
-          onBusMarkerPress={bus => Alert.alert('Ônibus', bus.title || bus.id)}
+          onBusMarkerPress={(bus) => Alert.alert("Ônibus", bus.title || bus.id)}
         />
-
-
       </Animated.View>
 
-      {/* Painel flutuante */}
-      <Animated.View style={[
-        styles.floatingPanel,
-        { 
-          height: panelHeight,
-          backgroundColor: appTheme === 'dark' ? '#000' : '#fff', // Corrige cor do painel
-          borderTopLeftRadius: 16,
-          borderTopRightRadius: 16,
-          borderBottomLeftRadius: 0,
-          borderBottomRightRadius: 0,
-        }
-      ]}
-      {...panResponder.panHandlers}
-      >
-        <TouchableOpacity style={[styles.panelHandle, 
-          {backgroundColor: appTheme === 'dark' ? '#222' : '#fff' }]}
+      {!panelOpen && (
+        <TouchableOpacity
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            bottom: 24,
+            alignItems: "center",
+            zIndex: 20,
+          }}
           onPress={togglePanel}
-          activeOpacity={0.7}
+          activeOpacity={0.85}
+        >
+          <View
+            style={{
+              backgroundColor: appTheme === "dark" ? "#222" : "#fff",
+              borderRadius: 24,
+              paddingHorizontal: 28,
+              paddingVertical: 14,
+              elevation: 8,
+              shadowColor: "#000",
+              shadowOpacity: 0.15,
+              shadowRadius: 8,
+              shadowOffset: { width: 0, height: 2 },
+              borderWidth: 1,
+              borderColor: appTheme === "dark" ? "#333" : "#eee",
+            }}
           >
-          <Text style={{ color: '#007AFF', fontWeight: 'bold' }}>
-            {panelOpen ? 'Fechar' : 'Abrir'} painel
-          </Text>
-        </TouchableOpacity>
-        {panelOpen && (
-          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: appTheme === 'dark' ? '#000' : '#fff' }}>
-            <Text style={{ color: appTheme === 'dark' ? '#fff' : '#333' }}>
-              Conteúdo do painel aqui!
+            <Text
+              style={{ color: "#007AFF", fontWeight: "bold", fontSize: 16 }}
+            >
+              Ver paradas
             </Text>
           </View>
-        )}
-      </Animated.View>
+        </TouchableOpacity>
+      )}
+
+      {/* Painel flutuante */}
+      {panelOpen && (
+        <Animated.View
+          style={[
+            styles.floatingPanel,
+            {
+              height: panelHeight,
+              backgroundColor: appTheme === "dark" ? "#000" : "#fff", // Corrige cor do painel
+              borderTopLeftRadius: 16,
+              borderTopRightRadius: 16,
+              borderBottomLeftRadius: 0,
+              borderBottomRightRadius: 0,
+              paddingTop: panelState === 2 ? insets.top + 50 : 0,
+            },
+          ]}
+          {...panResponder.panHandlers}
+        >
+          {/* Só mostra o handle se NÃO estiver em tela cheia */}
+          {panelState !== 2 && (
+            <TouchableOpacity
+              style={[
+                styles.panelHandle,
+                { backgroundColor: appTheme === "dark" ? "#222" : "#f2f2f2" },
+              ]}
+              onPress={togglePanel}
+              activeOpacity={0.7}
+            >
+              <Text style={{ color: "#007AFF", fontWeight: "bold" }}>
+                {panelOpen ? "Fechar" : "Abrir"} painel
+              </Text>
+            </TouchableOpacity>
+          )}
+          {panelOpen && (
+            <View
+              style={{
+                flex: 1,
+                justifyContent: "center",
+                alignItems: "center",
+                backgroundColor: appTheme === "dark" ? "#000" : "#fff",
+              }}
+            >
+              {/* <Text style={{ color: appTheme === 'dark' ? '#fff' : '#333' }}>
+                Conteúdo do painel aqui!
+              </Text> */}
+              <StopsPainelMenu />
+            </View>
+          )}
+        </Animated.View>
+      )}
 
       {/* Modal de Configurações */}
       <Modal
@@ -350,53 +457,96 @@ export default function Index() {
         onRequestClose={() => setShowSettings(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: appTheme === 'dark' ? '#333' : '#fff' }]}>
-            <Text style={[styles.modalTitle, { color: appTheme === 'dark' ? '#fff' : '#333' }]}>
+          <View
+            style={[
+              styles.modalContent,
+              { backgroundColor: appTheme === "dark" ? "#333" : "#fff" },
+            ]}
+          >
+            <Text
+              style={[
+                styles.modalTitle,
+                { color: appTheme === "dark" ? "#fff" : "#333" },
+              ]}
+            >
               Configurações
             </Text>
-            
+
             <View style={styles.settingRow}>
-              <Text style={[styles.settingLabel, { color: appTheme === 'dark' ? '#fff' : '#333' }]}>
+              <Text
+                style={[
+                  styles.settingLabel,
+                  { color: appTheme === "dark" ? "#fff" : "#333" },
+                ]}
+              >
                 Apenas ônibus ativos
               </Text>
               <Switch
                 value={showOnlyActiveBuses}
                 onValueChange={setShowOnlyActiveBuses}
-                trackColor={{ 
-                  false: '#767577', 
-                  true: appTheme === 'dark' ? '#81b0ff' : '#81b0ff' 
+                trackColor={{
+                  false: "#767577",
+                  true: appTheme === "dark" ? "#81b0ff" : "#81b0ff",
                 }}
-                thumbColor={showOnlyActiveBuses ? (appTheme === 'dark' ? '#007AFF' : '#007AFF') : '#f4f3f4'}
+                thumbColor={
+                  showOnlyActiveBuses
+                    ? appTheme === "dark"
+                      ? "#007AFF"
+                      : "#007AFF"
+                    : "#f4f3f4"
+                }
               />
             </View>
 
             <View style={styles.settingRow}>
-              <Text style={[styles.settingLabel, { color: appTheme === 'dark' ? '#fff' : '#333' }]}>
+              <Text
+                style={[
+                  styles.settingLabel,
+                  { color: appTheme === "dark" ? "#fff" : "#333" },
+                ]}
+              >
                 Mostrar paradas
               </Text>
               <Switch
                 value={showStopsStore}
                 onValueChange={setShowStopsStore}
-                trackColor={{ 
-                  false: '#767577', 
-                  true: appTheme === 'dark' ? '#81b0ff' : '#81b0ff' 
+                trackColor={{
+                  false: "#767577",
+                  true: appTheme === "dark" ? "#81b0ff" : "#81b0ff",
                 }}
-                thumbColor={showStopsStore ? (appTheme === 'dark' ? '#007AFF' : '#007AFF') : '#f4f3f4'}
+                thumbColor={
+                  showStopsStore
+                    ? appTheme === "dark"
+                      ? "#007AFF"
+                      : "#007AFF"
+                    : "#f4f3f4"
+                }
               />
             </View>
 
             <View style={styles.settingRow}>
-              <Text style={[styles.settingLabel, { color: appTheme === 'dark' ? '#fff' : '#333' }]}>
+              <Text
+                style={[
+                  styles.settingLabel,
+                  { color: appTheme === "dark" ? "#fff" : "#333" },
+                ]}
+              >
                 Mostrar trânsito
               </Text>
               <Switch
                 value={showTraffic}
                 onValueChange={setShowTraffic}
-                trackColor={{ 
-                  false: '#767577', 
-                  true: appTheme === 'dark' ? '#81b0ff' : '#81b0ff' 
+                trackColor={{
+                  false: "#767577",
+                  true: appTheme === "dark" ? "#81b0ff" : "#81b0ff",
                 }}
-                thumbColor={showTraffic ? (appTheme === 'dark' ? '#007AFF' : '#007AFF') : '#f4f3f4'}
+                thumbColor={
+                  showTraffic
+                    ? appTheme === "dark"
+                      ? "#007AFF"
+                      : "#007AFF"
+                    : "#f4f3f4"
+                }
               />
             </View>
 

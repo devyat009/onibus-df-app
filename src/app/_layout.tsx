@@ -1,6 +1,6 @@
 import { StatusBar } from 'expo-status-bar';
 import React, { useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { SafeAreaView, StyleSheet, View } from "react-native";
 import BottomNavbar from "../components/NavBarComponent/bottom-navbar.component";
 import { useAppStore } from "../store";
 import Index from "./index";
@@ -23,13 +23,13 @@ const RootLayout = () => {
   };
 
   return (
-    <View style={styles.container}>
-      <StatusBar style={appTheme === 'dark' ? 'light' : 'dark'} hidden={false} translucent={true} />
+    <SafeAreaView style={styles.container}>
+      <StatusBar style={appTheme === 'dark' ? 'light' : 'dark'} hidden={false} />
       <View style={styles.content}>
         {renderActiveScreen()}
       </View>
       <BottomNavbar onTabChange={setActiveTab} />
-    </View>
+    </SafeAreaView>
   );
 }
 
