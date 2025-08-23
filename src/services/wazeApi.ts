@@ -1,5 +1,5 @@
-import { CacheManager } from '../utils/cacheManager';
 import { MapBounds, TrafficJam } from '../types';
+import { CacheManager } from '../utils/cacheManager';
 
 interface WazeJamRaw {
   uuid?: string;
@@ -10,6 +10,8 @@ interface WazeJamRaw {
   speedKMH?: number;
   speed?: number; // Fallback field
   level?: number;
+  blockDescription?: string; // Descricao do bloqueio
+  blockType?: string; // tipo de bloqueio
   [key: string]: any; // Para outros campos que possam existir
 }
 
@@ -63,6 +65,8 @@ class WazeTrafficService {
       return null;
     }
 
+    const isClosed = jam.blockType === 'ROAD_CLOSED_EVENT';
+
     return {
       id,
       street: jam.street || 'Rua desconhecida',
@@ -70,7 +74,10 @@ class WazeTrafficService {
       speedKMH: jam.speedKMH || 0,
       level: jam.level || 1,
       color: this.getTrafficColor(jam.level || 1),
+      pattern: isClosed ? 'yellow-black' : undefined, // pattern de linha
       pubMillis: jam.pubMillis,
+      blockDescription: jam.blockDescription || '',
+      blockType: jam.blockType || ''
     };
   }
 

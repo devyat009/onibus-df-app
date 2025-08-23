@@ -1,5 +1,6 @@
 import {
   Camera,
+  Images,
   LineLayer,
   MapView,
   PointAnnotation,
@@ -10,6 +11,9 @@ import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 import { useTrafficData } from '../hooks/useTrafficData';
 import { useAppStore } from '../store';
 import { TrafficJam } from '../types';
+
+// Assets
+import yellowBlackStripes from '../assets/images/pattern/yellow-black.png';
 
 interface BusStopMarker {
   id: string;
@@ -113,20 +117,24 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
                  typeof coord[1] === 'number'
                );
       })
-      .map((jam: TrafficJam) => ({
-        type: 'Feature' as const,
-        properties: {
+      .map((jam: TrafficJam) => {
+        const props: any = {
           id: jam.id,
           street: jam.street,
           level: jam.level,
           color: jam.color,
           speedKMH: jam.speedKMH,
-        },
-        geometry: {
-          type: 'LineString' as const,
-          coordinates: jam.lines,
-        },
-      }));
+        };
+        if (jam.pattern) props.pattern = jam.pattern;
+        return {
+          type: 'Feature' as const,
+          properties: props,
+          geometry: {
+            type: 'LineString' as const,
+            coordinates: jam.lines,
+          },
+        };
+      });
 
     console.log(`Converted ${validFeatures.length} valid traffic features from ${traffic.length} total`);
 
@@ -232,6 +240,9 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
         mapStyle={mapStyles[mapTheme] || mapStyles.light}
         onRegionDidChange={handleRegionDidChange}
       >
+        {/* Padrão de linha para bloqueios */}
+        <Images images={{ 'yellow-black': yellowBlackStripes }} />
+
         {latitude !== undefined && longitude !== undefined && zoom !== undefined ? (
           <Camera
               centerCoordinate={[longitude, latitude]}
@@ -252,6 +263,7 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
               id="traffic-lines"
               style={{
                 lineColor: ['get', 'color'],
+                //linePattern: ['coalesce', ['get', 'pattern'], ''], // to do
                 lineWidth: [
                   'interpolate',
                   ['linear'],

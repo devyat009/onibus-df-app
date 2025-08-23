@@ -79,16 +79,10 @@ class ApiService {
       appConfig.api.endpoints.buses,
       bounds
     );
-    const now = Date.now();
-    // filtro para não mostrar ônibus a 10 minutos sem sinal
+    
     return response.features
       .map(feature => this.transformBusFromApi(feature))
-      .filter(bus => {
-        if (!bus || !bus.datalocal) return false;
-        const data = new Date(bus.datalocal).getTime();
-        // 20 minutos = 1_200_000 ms
-        return now - data <= 1_200_000;
-      }) as Bus[];
+      .filter(bus => bus !== null) as Bus[];
   }
 
   /**

@@ -33,6 +33,9 @@ export interface TrafficJam {
   level: number;
   color: string; // Based on level
   pubMillis: number;
+  blockDescription: string; // Descricao do bloqueio
+  blockType: string; // Tipo do bloqueio
+  pattern: any;
 }
 
 export interface TrafficAlert {
@@ -126,7 +129,7 @@ export interface BusApiProperties {
   linha?: string;
   servico?: string;
   velocidade: number;
-  sentido: string;
+  sentido?: string;
   datalocal: string;
   tarifa?: number;
 }
