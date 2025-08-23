@@ -6,6 +6,7 @@ import {
   PointAnnotation,
   ShapeSource
 } from '@maplibre/maplibre-react-native';
+import * as Location from 'expo-location';
 import React, { useState } from 'react';
 import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 import { useTrafficData } from '../hooks/useTrafficData';
@@ -88,6 +89,15 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
   const fadeAnim = React.useRef(new Animated.Value(0)).current;
   const [isFetching, setIsFetching] = React.useState(false);
   const progressAnim = React.useRef(new Animated.Value(0)).current;
+
+  const [userSpeed, setUserSpeed] = useState<number | null>(null);
+  const [userHeading, setUserHeading] = useState<number | null>(null);
+
+  function headingToCardinal(heading: number | null): string {
+    if (heading == null || isNaN(heading)) return '';
+    const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW', 'N'];
+    return dirs[Math.round(((heading % 360) / 45))];
+  }
 
   // Hook para dados de trânsito
   const { traffic } = useTrafficData({
@@ -233,6 +243,28 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
     const interval = setInterval(fetchBuses, 5000);
     return () => clearInterval(interval);
   }, [progressAnim]);
+
+  // Obtem a velocidade do usuário
+  React.useEffect(() => {
+  let subscription: Location.LocationSubscription | null = null;
+  (async () => {
+    let { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') return;
+
+    subscription = await Location.watchPositionAsync(
+      { accuracy: Location.Accuracy.BestForNavigation, distanceInterval: 1, timeInterval: 1000 },
+      (location) => {
+        // location.coords.speed é em m/s
+        setUserSpeed(location.coords.speed != null ? location.coords.speed * 3.6 : 0); // km/h
+        setUserHeading(location.coords.heading ?? null);
+      }
+    );
+  })();
+
+  return () => {
+    if (subscription) subscription.remove();
+  };
+}, []);
   
   return (
     <View style={[styles.container, style]}>
@@ -370,7 +402,100 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
           </PointAnnotation>
         ))}
       </MapView>
-      
+      {/* Velocimetro */}
+      {typeof userSpeed === 'number' && (
+        <View
+          style={{
+            position: 'absolute',
+            left: 10,
+            bottom: 5,
+            zIndex: 20,
+          }}
+        >
+          <View
+            style={{
+              width: 120,
+              height: 50,
+              borderRadius: 12,
+              borderWidth: 1.5,
+              borderColor: appTheme === 'dark' ? '#444' : '#ccc',
+              backgroundColor: appTheme === 'dark' ? '#222' : '#fff',
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              paddingHorizontal: 10,
+              elevation: 4,
+              shadowColor: '#000',
+              shadowOpacity: 0.15,
+              shadowRadius: 4,
+              shadowOffset: { width: 0, height: 2 },
+            }}
+          >
+            {/* Velocidade */}
+            <View style={{ alignItems: 'center', justifyContent: 'center' }}>
+              <Text
+                style={{
+                  color: appTheme === 'dark' ? '#fff' : '#222',
+                  fontSize: 28,
+                  fontWeight: 'bold',
+                  textAlign: 'center',
+                  lineHeight: 32,
+                }}
+              >
+                {userSpeed?.toFixed(1)}
+              </Text>
+              <Text
+                style={{
+                  color: appTheme === 'dark' ? '#aaa' : '#666',
+                  fontSize: 12,
+                  textAlign: 'center',
+                }}
+              >
+                km/h
+              </Text>
+            </View>
+            {/* Rosa dos ventos */}
+            <View
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 18,
+                borderWidth: 1,
+                borderColor: appTheme === 'dark' ? '#444' : '#ccc',
+                backgroundColor: appTheme === 'dark' ? '#222' : '#fff',
+                justifyContent: 'center',
+                alignItems: 'center',
+                marginLeft: 8,
+              }}
+            >
+              <Animated.View
+                style={{
+                  transform: [{ rotate: `${userHeading ?? 0}deg` }],
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Text style={{
+                  fontSize: 20,
+                  color: appTheme === 'dark' ? '#fff' : '#222',
+                  fontWeight: 'bold',
+                  marginBottom: -2,
+                }}>↑</Text>
+              </Animated.View>
+              <Text style={{
+                fontSize: 10,
+                color: appTheme === 'dark' ? '#aaa' : '#666',
+                position: 'absolute',
+                bottom: 2,
+                alignSelf: 'center',
+              }}>
+                {headingToCardinal(userHeading)}
+              </Text>
+            </View>
+          </View>
+        </View>
+      )}
+
       {/* Popup customizado fora do mapa */}
       {selectedBus && (
         <Animated.View style={[
