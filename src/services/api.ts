@@ -1,3 +1,4 @@
+import { useAppStore } from '../store';
 import {
   ApiResponse,
   Bus,
@@ -47,7 +48,7 @@ class ApiService {
         const bbox = `${minX},${minY},${maxX},${maxY},EPSG:4326`;
         url += `&bbox=${bbox}&srsName=EPSG:4326`;
       }
-
+      
       const response = await fetch(url, {
         headers: {
           'Accept': 'application/json',
@@ -74,25 +75,52 @@ class ApiService {
     }
   }
 
-  async getBuses(bounds?: MapBounds): Promise<Bus[]> {
+  async getBuses(bounds?: MapBounds, timeFilter?: '30min' | '24h'): Promise<Bus[]> {
     const response = await this.makeRequest<BusApiProperties>(
       appConfig.api.endpoints.buses,
       bounds
     );
-    
-    return response.features
+    const allBuses = response.features
       .map(feature => this.transformBusFromApi(feature))
       .filter(bus => bus !== null) as Bus[];
+
+    // Use filter from store if not provided as parameter
+    const filterToUse = timeFilter || useAppStore.getState().busTimeFilter;
+
+    function filterActiveBusesLast20Minutes(buses: Bus[], filter: '30min' | '24h' = '30min'): Bus[] {
+      const now = Date.now();
+      const TWENTY_FOUR_HOURS = 9999999999 * 60 * 60 * 1000; // all time
+      const THIRTY_MINUTES = 30 * 60 * 1000;
+      
+      const timeLimit = filter === '24h' ? TWENTY_FOUR_HOURS : THIRTY_MINUTES;
+
+      return buses.filter(bus => {
+        if (!bus.datalocal) return false;
+        // Corrige formato para ISO
+        const isoString = bus.datalocal.replace(' ', 'T');
+        const busTime = Date.parse(isoString);
+        if (isNaN(busTime)) return false;
+        return now - busTime <= timeLimit && now - busTime >= 0;
+      });
+    }
+    
+    const filteredBuses = filterActiveBusesLast20Minutes(allBuses, filterToUse);
+    console.log(`buses on last ${filterToUse}: `, filteredBuses.length);
+    return filteredBuses;
+    //return allBuses;
   }
 
   /**
    * Get buses enhanced with operator information from frota cache
    * This method merges bus data with frota data based on prefixo/numeroVeiculo
    */
-  async getEnhancedBuses(bounds?: MapBounds): Promise<EnhancedBus[]> {
+  async getEnhancedBuses(bounds?: MapBounds, timeFilter?: '30min' | '24h'): Promise<EnhancedBus[]> {
+    // Use filter from store if not provided as parameter
+    const filterToUse = timeFilter || useAppStore.getState().busTimeFilter;
+    
     // Get buses and frota data in parallel
     const [buses, frota] = await Promise.all([
-      this.getBuses(bounds),
+      this.getBuses(bounds, filterToUse),
       this.getFrotaCached() // Use cached frota data
     ]);
 
@@ -264,6 +292,7 @@ class ApiService {
       datalocal: properties.datalocal || '',
       tarifa: properties.tarifa,
       active: Boolean(properties.cd_linha || properties.prefixo),
+      dataregistro: properties.dataregistro || '',
     };
   }
 

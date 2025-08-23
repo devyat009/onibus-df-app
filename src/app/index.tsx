@@ -443,7 +443,9 @@ export default function Index() {
               {/* <Text style={{ color: appTheme === 'dark' ? '#fff' : '#333' }}>
                 Conteúdo do painel aqui!
               </Text> */}
-              <StopsPainelMenu />
+              <StopsPainelMenu
+                stops={stops}
+              />
             </View>
           )}
         </Animated.View>

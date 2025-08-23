@@ -8,7 +8,12 @@ import {
   View,
 } from "react-native";
 
-const StopsPainelMenu = () => {
+interface StopsPainelMenuBasicProps {
+  stops?: any[];
+}
+const StopsPainelMenu: React.FC<StopsPainelMenuBasicProps> = ({
+  stops,
+}) => {
   const appTheme = useAppStore((state) => state.appTheme);
   const [activeTab, setActiveTab] = React.useState<"nearby" | "favorites">(
     "nearby"

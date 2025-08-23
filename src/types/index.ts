@@ -9,6 +9,7 @@ export interface Bus {
   velocidade: number;
   sentido: string;
   datalocal: string;
+  dataregistro?: string;
   tarifa?: number;
   active: boolean;
 }
@@ -112,6 +113,7 @@ export interface UserLocation {
 
 export interface ApiResponse<T> {
   type: 'FeatureCollection';
+  timeStamp?: string;
   features: {
     type: 'Feature';
     properties: T;
@@ -131,6 +133,7 @@ export interface BusApiProperties {
   velocidade: number;
   sentido?: string;
   datalocal: string;
+  dataregistro?: string;
   tarifa?: number;
 }
 

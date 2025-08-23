@@ -1,29 +1,58 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useState } from 'react';
-import { LayoutAnimation, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, UIManager, View } from 'react-native';
+import { LayoutAnimation, Modal, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, UIManager, View } from 'react-native';
+import { apiService } from '../../services/api';
+import { wazeTrafficService } from '../../services/wazeApi';
 import { useAppStore } from '../../store';
 
-type UrlKey = 'buses' | 'stops' | 'lines';
+type UrlKey = 'buses' | 'stops' | 'lines' | 'frota' | 'busesEnhanced' | 'wazeTraffic';
 interface UrlItem {
   key: UrlKey;
   label: string;
-  url: string;
+  description?: string;
+  requiresBounds?: boolean;
 }
+
+// Bounds de exemplo para Brasília
+const DEFAULT_BOUNDS = {
+  north: -15.4300, // extremo norte do DF
+  south: -16.0600, // extremo sul do DF
+  east: -47.3300,  // extremo leste do DF
+  west: -48.1200,  // extremo oeste do DF
+};
+
 const URLS: UrlItem[] = [
   {
     key: 'buses',
-    label: 'Ônibus',
-    url: 'http://geoserver.semob.df.gov.br/geoserver/semob/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=semob%3A%C3%9Altima%20posi%C3%A7%C3%A3o%20da%20frota&outputFormat=application%2Fjson',
+    label: 'Ônibus (Filtrado)',
+    description: 'Ônibus filtrados por tempo (30min ou sem filtro)',
+  },
+  {
+    key: 'busesEnhanced',
+    label: 'Ônibus Enhanced',
+    description: 'Ônibus com dados de operadora',
   },
   {
     key: 'stops',
     label: 'Paradas',
-    url: 'http://geoserver.semob.df.gov.br/geoserver/semob/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=semob%3AParadas%20de%20onibus&outputFormat=application%2Fjson',
+    description: 'Paradas de ônibus da região',
+    requiresBounds: true,
   },
   {
     key: 'lines',
     label: 'Linhas',
-    url: 'http://geoserver.semob.df.gov.br/geoserver/semob/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=semob%3ALinhas%20de%20onibus&outputFormat=application%2Fjson',
+    description: 'Rotas/linhas de ônibus',
+  },
+  {
+    key: 'frota',
+    label: 'Frota (Cached)',
+    description: 'Dados da frota de operadoras',
+  },
+  {
+    key: 'wazeTraffic',
+    label: 'Waze Trânsito',
+    description: 'Dados de trânsito do Waze',
+    requiresBounds: true,
   },
 ];
 
@@ -33,6 +62,8 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 
 const DeveloperOptions = () => {
   const appTheme = useAppStore(state => state.appTheme);
+  const busTimeFilter = useAppStore(state => state.busTimeFilter);
+  const setBusTimeFilter = useAppStore(state => state.setBusTimeFilter);
   const [expanded, setExpanded] = useState(false);
   const [results, setResults] = useState<Partial<Record<UrlKey, 'success' | 'error' | 'loading'>>>({});
   const [logs, setLogs] = useState<Partial<Record<UrlKey, string>>>({});
@@ -41,19 +72,61 @@ const DeveloperOptions = () => {
 
   const toggleExpand = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setExpanded((prev) => !prev);
+    setExpanded(!expanded);
   };
 
-  const fetchAndPreview = async (key: UrlKey, url: string) => {
+  const fetchAndPreview = async (key: UrlKey) => {
     setResults(r => ({ ...r, [key]: 'loading' }));
     setLogs(l => ({ ...l, [key]: '' }));
     try {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const geojson = await res.json();
+      let data: any;
+      const startTime = Date.now();
+      
+      switch (key) {
+        case 'buses':
+          // Usar o valor do store para determinar o filtro
+          data = await apiService.getBuses(undefined, busTimeFilter);
+          break;
+          
+        case 'busesEnhanced':
+          // Usar o valor do store também para enhanced buses
+          data = await apiService.getEnhancedBuses(undefined, busTimeFilter);
+          break;
+          
+        case 'stops':
+          data = await apiService.getStops(DEFAULT_BOUNDS);
+          break;
+          
+        case 'lines':
+          data = await apiService.getLinesCached();
+          break;
+          
+        case 'frota':
+          data = await apiService.getFrotaCached();
+          break;
+          
+        case 'wazeTraffic':
+          data = await wazeTrafficService.getTrafficJams(DEFAULT_BOUNDS);
+          break;
+          
+        default:
+          throw new Error('Endpoint não implementado');
+      }
+      
+      const endTime = Date.now();
+      const duration = endTime - startTime;
+      
       setResults(r => ({ ...r, [key]: 'success' }));
-      setLogs(l => ({ ...l, [key]: JSON.stringify(geojson).slice(0, 500) }));
-      setPreviewData(d => ({ ...d, [key]: geojson }));
+      
+      // Criar mensagem detalhada baseada no tipo de dado
+      let logMessage = `Sucesso! ${Array.isArray(data) ? data.length : 'N/A'} items em ${duration}ms`;
+      if (key === 'buses') {
+        logMessage += ` (Filtro: ${busTimeFilter})`;
+      }
+      
+      setLogs(l => ({ ...l, [key]: logMessage }));
+      setPreviewData(d => ({ ...d, [key]: data }));
+      
     } catch (e) {
       setResults(r => ({ ...r, [key]: 'error' }));
       setLogs(l => ({ ...l, [key]: String(e) }));
@@ -61,72 +134,93 @@ const DeveloperOptions = () => {
     }
   };
 
-  const checkUrl = async (key: UrlKey, url: string) => {
-    setResults(r => ({ ...r, [key]: 'loading' }));
-    setLogs(l => ({ ...l, [key]: '' }));
-    try {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const text = await res.text();
-      setResults(r => ({ ...r, [key]: 'success' }));
-      setLogs(l => ({ ...l, [key]: text.slice(0, 500) }));
-    } catch (e) {
-      setResults(r => ({ ...r, [key]: 'error' }));
-      setLogs(l => ({ ...l, [key]: String(e) }));
-    }
-  };
-
   const getPreviewTitle = (key: UrlKey | null) => {
     switch (key) {
       case 'buses': return 'Preview dos Ônibus';
+      case 'busesEnhanced': return 'Preview dos Ônibus (Enhanced)';
       case 'stops': return 'Preview das Paradas';
-      case 'lines': return 'Preview das Rotas';
+      case 'lines': return 'Preview das Linhas';
+      case 'frota': return 'Preview da Frota';
+      case 'wazeTraffic': return 'Preview do Trânsito (Waze)';
       default: return 'Preview';
     }
   };
 
   return (
-    <View style={[styles.section, { backgroundColor: appTheme === 'dark' ? '#111' : '#f7f7f7' }]}>
-      <TouchableOpacity style={styles.headerRow} onPress={toggleExpand} activeOpacity={0.7}>
-        <Text style={[styles.sectionTitle, { color: appTheme === 'dark' ? '#fff' : '#000' }]}>Opções de Desenvolvedor</Text>
+    <View>
+      {/* Opções de Desenvolvedor */}
+      <TouchableOpacity onPress={toggleExpand} style={[styles.option, { 
+        borderBottomColor: appTheme === 'dark' ? '#333' : '#eee',
+        backgroundColor: appTheme === 'dark' ? '#000' : '#fff' 
+      }]}>
+        <Text style={[styles.optionText, { color: appTheme === 'dark' ? '#fff' : '#333' }]}>Opções de Desenvolvedor</Text>
         <Ionicons
-          name={expanded ? 'chevron-up' : 'chevron-down'}
+          name={expanded ? "chevron-up" : "chevron-down"}
           size={24}
-          color={appTheme === 'dark' ? '#fff' : '#333'}
-          style={styles.chevron}
+          color={appTheme === 'dark' ? '#ccc' : '#666'}
         />
       </TouchableOpacity>
       {expanded && (
-        <ScrollView>
-          {URLS.map(({ key, label, url }) => (
-            <View key={key} style={styles.row}>
-              <TouchableOpacity
-                style={styles.button}
-                onPress={() => fetchAndPreview(key, url)}
-              >
-                <Text style={styles.buttonText}>{label}</Text>
-              </TouchableOpacity>
-              <Text style={{ 
-                color: results[key] === 'success' ? 'green' : results[key] === 'error' ? 'red' : (appTheme === 'dark' ? '#ccc' : '#888'), 
-                marginLeft: 8 
-              }}>
-                {results[key] === 'success' && 'OK'}
-                {results[key] === 'error' && 'Erro'}
-                {results[key] === 'loading' && '...'}
-              </Text>
-              {results[key] === 'error' && (
-                <TouchableOpacity onPress={() => alert(logs[key])}>
-                  <Text style={[styles.logLink, { color: appTheme === 'dark' ? '#ff6b6b' : '#c30505' }]}>Ver log</Text>
+        <View style={[styles.expandedContent, { backgroundColor: appTheme === 'dark' ? '#111' : '#f9f9f9' }]}>
+          
+          {/* Toggle para filtro de ônibus */}
+          <View style={styles.toggleRow}>
+            <Text style={[styles.toggleText, { color: appTheme === 'dark' ? '#fff' : '#333' }]}>
+              Filtro Ônibus: {busTimeFilter === '30min' ? '30 minutos' : 'Sem filtro'}
+            </Text>
+            <Switch
+              value={busTimeFilter === '30min'}
+              onValueChange={(value) => setBusTimeFilter(value ? '30min' : '24h')}
+              trackColor={{
+                false: "#767577",
+                true: appTheme === 'dark' ? "#81b0ff" : "#81b0ff",
+              }}
+              thumbColor={busTimeFilter === '30min' ? "#007AFF" : "#f4f3f4"}
+            />
+          </View>
+
+          {URLS.map(({ key, label, description }) => (
+            <View key={key} style={styles.urlRow}>
+              <View style={styles.buttonContainer}>
+                <TouchableOpacity
+                  style={[
+                    styles.urlButton,
+                    { backgroundColor: appTheme === 'dark' ? '#333' : '#007AFF' }
+                  ]}
+                  onPress={() => fetchAndPreview(key)}
+                >
+                  <Text style={styles.urlButtonText}>{label}</Text>
                 </TouchableOpacity>
-              )}
-              {results[key] === 'success' && previewData[key] && (
-                <TouchableOpacity onPress={() => setShowPreview({ key, visible: true })}>
-                  <Text style={[styles.logLink, { color: appTheme === 'dark' ? '#ff6b6b' : '#c30505' }]}>Preview</Text>
-                </TouchableOpacity>
-              )}
+                {description && (
+                  <Text style={[styles.descriptionText, { color: appTheme === 'dark' ? '#aaa' : '#666' }]}>
+                    {description}
+                  </Text>
+                )}
+              </View>
+              <View style={styles.statusContainer}>
+                <Text style={{ 
+                  color: results[key] === 'success' ? '#4CAF50' : results[key] === 'error' ? '#F44336' : (appTheme === 'dark' ? '#ccc' : '#888'), 
+                  fontSize: 12,
+                  textAlign: 'right',
+                }}>
+                  {results[key] === 'success' && logs[key]}
+                  {results[key] === 'error' && 'Erro'}
+                  {results[key] === 'loading' && 'Loading...'}
+                </Text>
+                {results[key] === 'error' && (
+                  <TouchableOpacity onPress={() => alert(logs[key])}>
+                    <Text style={[styles.logLink, { color: appTheme === 'dark' ? '#ff6b6b' : '#c30505' }]}>Ver log</Text>
+                  </TouchableOpacity>
+                )}
+                {results[key] === 'success' && previewData[key] && (
+                  <TouchableOpacity onPress={() => setShowPreview({ key, visible: true })}>
+                    <Text style={[styles.logLink, { color: appTheme === 'dark' ? '#64B5F6' : '#1976D2' }]}>Preview</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
             </View>
           ))}
-        </ScrollView>
+        </View>
       )}
 
       {/* Modal de preview */}
@@ -140,15 +234,26 @@ const DeveloperOptions = () => {
           <View style={[styles.modalContent, { backgroundColor: appTheme === 'dark' ? '#222' : '#fff' }]}>
             <Text style={[styles.modalTitle, { color: appTheme === 'dark' ? '#fff' : '#000' }]}>{getPreviewTitle(showPreview.key)}</Text>
             <ScrollView style={{ maxHeight: 400 }}>
-              {previewData[showPreview.key as UrlKey]?.features?.slice(0, 10).map((feature: any, idx: number) => (
-                <View key={idx} style={[styles.featureBox, { backgroundColor: appTheme === 'dark' ? '#333' : '#f3f3f3' }]}>
-                  <Text style={[styles.featureTitle, { color: appTheme === 'dark' ? '#fff' : '#000' }]}>{`${getPreviewTitle(showPreview.key).replace('Preview ', '')} #${idx + 1}`}</Text>
+              {Array.isArray(previewData[showPreview.key as UrlKey]) ? (
+                previewData[showPreview.key as UrlKey]?.slice(0, 5).map((item: any, idx: number) => (
+                  <View key={idx} style={[styles.featureBox, { backgroundColor: appTheme === 'dark' ? '#333' : '#f3f3f3' }]}>
+                    <Text style={[styles.featureTitle, { color: appTheme === 'dark' ? '#fff' : '#000' }]}>
+                      {`${getPreviewTitle(showPreview.key).replace('Preview ', '').replace('dos ', '').replace('das ', '').replace('da ', '')} #${idx + 1}`}
+                    </Text>
+                    <Text style={[styles.featureText, { color: appTheme === 'dark' ? '#ccc' : '#222' }]}>
+                      {JSON.stringify(item, null, 2)}
+                    </Text>
+                  </View>
+                ))
+              ) : (
+                <View style={[styles.featureBox, { backgroundColor: appTheme === 'dark' ? '#333' : '#f3f3f3' }]}>
+                  <Text style={[styles.featureTitle, { color: appTheme === 'dark' ? '#fff' : '#000' }]}>Dados completos</Text>
                   <Text style={[styles.featureText, { color: appTheme === 'dark' ? '#ccc' : '#222' }]}>
-                    {JSON.stringify(feature.properties, null, 2)}
+                    {JSON.stringify(previewData[showPreview.key as UrlKey], null, 2)}
                   </Text>
                 </View>
-              ))}
-              {!previewData[showPreview.key as UrlKey]?.features?.length && (
+              )}
+              {Array.isArray(previewData[showPreview.key as UrlKey]) && !previewData[showPreview.key as UrlKey]?.length && (
                 <Text style={[styles.featureText, { color: appTheme === 'dark' ? '#ccc' : '#222' }]}>Nenhum dado encontrado.</Text>
               )}
             </ScrollView>
@@ -163,42 +268,70 @@ const DeveloperOptions = () => {
 };
 
 const styles = StyleSheet.create({
-  section: {
-    marginTop: 32,
-    padding: 16,
-    borderRadius: 10,
+  option: {
+    padding: 12,
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
-  headerRow: {
+  optionText: {
+    fontSize: 16,
+  },
+  expandedContent: {
+    padding: 12,
+  },
+  toggleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 12,
+    marginBottom: 16,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+    borderRadius: 8,
   },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
+  toggleText: {
+    fontSize: 16,
+    fontWeight: '500',
   },
-  chevron: {
-    marginLeft: 8,
-  },
-  row: {
+  urlRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    gap: 12,
   },
-  button: {
-    backgroundColor: '#1f6feb',
-    paddingVertical: 6,
-    paddingHorizontal: 14,
+  buttonContainer: {
+    flex: 1,
+  },
+  urlButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 6,
     borderRadius: 6,
+    alignItems: 'center',
+    marginBottom: 4,
+    width: '50%',
   },
-  buttonText: {
+  urlButtonText: {
     color: '#fff',
     fontWeight: 'bold',
+    fontSize: 14,
+  },
+  descriptionText: {
+    fontSize: 12,
+    fontStyle: 'italic',
+    marginTop: 2,
+  },
+  statusContainer: {
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    minWidth: 120,
   },
   logLink: {
-    marginLeft: 10,
+    marginTop: 4,
     textDecorationLine: 'underline',
+    fontSize: 12,
   },
   modalOverlay: {
     flex: 1,

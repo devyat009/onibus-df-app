@@ -32,6 +32,7 @@ interface BusMarker {
   velocidade?: number;
   sentido?: string;
   datalocal?: string;
+  dataregistro?: string;
   operadora?: {
     nome: string;
     servico: string;
@@ -196,6 +197,20 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
         }).start(() => setSelectedBus(null));
       }, 5000);
     }
+  };
+
+  // Manipula o dado de quando foi atualiado
+  const getAtualizadoTexto = (datalocal?: string) => {
+    if (!datalocal) return '';
+    const isoString = datalocal.replace(' ', 'T');
+    const dataBus = new Date(isoString);
+    const agora = new Date();
+    const diffMs = agora.getTime() - dataBus.getTime();
+    const diffMin = Math.floor(diffMs / 60000);
+
+    if (diffMin < 1) return 'Atualizado: agora';
+    if (diffMin === 1) return 'Atualizado: há 1 minuto';
+    return `Atualizado: há ${diffMin} minutos`;
   };
 
   // Simula busca dos ônibus a cada 5 segundos
@@ -387,7 +402,7 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
             )}
             {selectedBus.datalocal && (
               <Text style={[styles.popupTimestamp, { color: appTheme === 'dark' ? '#aaa' : '#888' }]}>
-                Atualizado: {new Date(selectedBus.datalocal).toLocaleTimeString('pt-BR')}
+                {getAtualizadoTexto(selectedBus.datalocal)}
               </Text>
             )}
           </View>

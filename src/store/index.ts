@@ -7,6 +7,9 @@ interface AppState extends MapState {
   // App theme (separate from map theme)
   appTheme: AppTheme;
   
+  // Bus filter settings
+  busTimeFilter: '30min' | '24h';
+  
   // Data state
   buses: Bus[];
   stops: BusStop[];
@@ -48,6 +51,7 @@ interface AppState extends MapState {
   setMapZoom: (zoom: number) => void;
   setMapStyle: (style: MapStyle) => void;
   setAppTheme: (theme: AppTheme) => void;
+  setBusTimeFilter: (filter: '30min' | '24h') => void;
   setShowBuses: (show: boolean) => void;
   setShowStops: (show: boolean) => void;
   setShowOnlyActiveBuses: (show: boolean) => void;
@@ -72,6 +76,9 @@ interface AppState extends MapState {
 const initialState = {
   // App theme
   appTheme: 'light' as AppTheme,
+  
+  // Bus filter (default 30min)
+  busTimeFilter: '30min' as '30min' | '24h',
   
   // Map state
   center: {
@@ -139,6 +146,9 @@ export const useAppStore = create<AppState>()(
       
       setAppTheme: (appTheme) =>
         set({ appTheme }),
+      
+      setBusTimeFilter: (busTimeFilter) =>
+        set({ busTimeFilter }),
       
       setShowBuses: (showBuses) =>
         set({ showBuses }),
