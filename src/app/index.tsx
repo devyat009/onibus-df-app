@@ -2,7 +2,7 @@ import apiService from '@/src/services/api';
 import { useAppStore } from '@/src/store';
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from "react";
-import { Alert, Modal, SafeAreaView, StyleSheet, Switch, Text, TouchableOpacity, View } from "react-native";
+import { Alert, Animated, Dimensions, Easing, Modal, SafeAreaView, StyleSheet, Switch, Text, TouchableOpacity, View } from "react-native";
 import MapLibreBasic from '../components/MapLibre';
 import { useLocation } from "../hooks/useLocation";
 
@@ -41,6 +41,38 @@ export default function Index() {
 
   // Settings modal
   const [showSettings, setShowSettings] = useState(false);
+
+  // Estado para controlar o painel de paradas
+  const [panelOpen, setPanelOpen] = useState(false);
+  const panelAnim = useState(new Animated.Value(0))[0]; // 0 = fechado, 1 = aberto
+
+  const SCREEN_HEIGHT = Dimensions.get('window').height;
+  const PANEL_MIN_HEIGHT = 60;
+  const PANEL_MID_HEIGHT = 300;
+  const PANEL_MAX_HEIGHT = SCREEN_HEIGHT;
+
+   // Animação de abrir/fechar
+  const togglePanel = () => {
+    Animated.timing(panelAnim, {
+      toValue: panelOpen ? 0 : 1,
+      duration: 300,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+    setPanelOpen(!panelOpen);
+  };
+
+  // Altura do painel
+  const panelHeight = panelAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [60, 300], // altura fechada e aberta
+  });
+
+  // Espaço para empurrar o mapa para cima
+  const mapPaddingBottom = panelAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 300], // igual à altura máxima do painel
+  });
 
   // Solicitar permissão ao montar e iniciar watch de localização
   useEffect(() => {
@@ -162,7 +194,7 @@ export default function Index() {
       <View style={[styles.header, { backgroundColor: appTheme === 'dark' ? '#000' : '#fff' }]}>
         <Text style={[styles.title, { color: appTheme === 'dark' ? '#fff' : '#333' }]}>ÔnibusDF</Text>
       </View>
-      <View style={styles.mapContainer}>
+      <Animated.View style={[styles.mapContainer, { paddingBottom: mapPaddingBottom }]}>
         <MapLibreBasic
           latitude={cameraMode === 'auto' ? mapCenter.latitude : undefined}
           longitude={cameraMode === 'auto' ? mapCenter.longitude : undefined}
@@ -187,30 +219,74 @@ export default function Index() {
         />
 
         {/* Botão de Localização */}
-        <TouchableOpacity
+        <Animated.View style={{ 
+          position: 'absolute', 
+          right: 24, 
+          bottom: Animated.add(mapPaddingBottom, 45) 
+        }}>
+          <TouchableOpacity
           style={[styles.locateButton, { backgroundColor: appTheme === 'dark' ? '#333' : '#fff' }]}
           onPress={handleLocatePress}
           disabled={loading.location}
-        >
-          <Ionicons
-            name={loading.location ? "hourglass" : "locate"}
-            size={28}
-            color={loading.location ? "#999" : "#007AFF"}
-          />
-        </TouchableOpacity>
+          >
+            <Ionicons
+              name={loading.location ? "hourglass" : "locate"}
+              size={28}
+              color={loading.location ? "#999" : "#007AFF"}
+            />
+          </TouchableOpacity>
+          
+        </Animated.View>
 
         {/* Botão de Configurações */}
-        <TouchableOpacity
+        <Animated.View style={{ 
+          position: 'absolute', 
+          right: 24, 
+          bottom: Animated.add(mapPaddingBottom, 45) 
+        }}>
+          <TouchableOpacity
           style={[styles.configButton, { backgroundColor: appTheme === 'dark' ? '#333' : '#fff' }]}
           onPress={handleConfigPress}
-        >
-          <Ionicons
-            name="settings"
-            size={28}
-            color={appTheme === 'dark' ? '#999' : '#007AFF'}
-          />
+          >
+            <Ionicons
+              name="settings"
+              size={28}
+              color={appTheme === 'dark' ? '#999' : '#007AFF'}
+            />
+          </TouchableOpacity>
+        </Animated.View>
+
+      </Animated.View>
+
+      {/* Painel flutuante */}
+      <Animated.View style={[
+        styles.floatingPanel,
+        { 
+          height: panelHeight,
+          backgroundColor: appTheme === 'dark' ? '#000' : '#fff', // Corrige cor do painel
+          borderTopLeftRadius: 16,
+          borderTopRightRadius: 16,
+          borderBottomLeftRadius: 0,
+          borderBottomRightRadius: 0,
+        }
+      ]}>
+        <TouchableOpacity style={[styles.panelHandle, 
+          {backgroundColor: appTheme === 'dark' ? '#222' : '#fff' }]}
+          onPress={togglePanel}
+          activeOpacity={0.7}
+          >
+          <Text style={{ color: '#007AFF', fontWeight: 'bold' }}>
+            {panelOpen ? 'Fechar' : 'Abrir'} painel
+          </Text>
         </TouchableOpacity>
-      </View>
+        {panelOpen && (
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: appTheme === 'dark' ? '#000' : '#fff' }}>
+            <Text style={{ color: appTheme === 'dark' ? '#fff' : '#333' }}>
+              Conteúdo do painel aqui!
+            </Text>
+          </View>
+        )}
+      </Animated.View>
 
       {/* Modal de Configurações */}
       <Modal
@@ -302,6 +378,7 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 8,
   },
+  // Botão de localização
   locateButton: {
     position: 'absolute',
     bottom: 24,
@@ -317,6 +394,7 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     shadowOffset: { width: 0, height: 2 },
   },
+  // Botão de configurações e modal
   configButton: {
     position: 'absolute',
     bottom: 84,
@@ -370,5 +448,30 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+
+  // Animação do painel flutuante
+  floatingPanel: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    //backgroundColor: '#fff',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: -2 },
+    overflow: 'hidden',
+  },
+  panelHandle: {
+    height: 60,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    backgroundColor: '#f2f2f2',
   },
 });
