@@ -2,7 +2,18 @@ import apiService from '@/src/services/api';
 import { useAppStore } from '@/src/store';
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from "react";
-import { Alert, Animated, Dimensions, Easing, Modal, SafeAreaView, StyleSheet, Switch, Text, TouchableOpacity, View } from "react-native";
+import {
+  Alert,
+  Animated,
+  Dimensions,
+  Modal,
+  PanResponder,
+  SafeAreaView, StyleSheet,
+  Switch,
+  Text,
+  TouchableOpacity,
+  View
+} from "react-native";
 import MapLibreBasic from '../components/MapLibre';
 import { useLocation } from "../hooks/useLocation";
 
@@ -46,6 +57,10 @@ export default function Index() {
   const [panelOpen, setPanelOpen] = useState(false);
   const panelAnim = useState(new Animated.Value(0))[0]; // 0 = fechado, 1 = aberto
 
+    // Estado para altura do painel (0 = fechado, 1 = médio, 2 = máximo)
+  const [panelState, setPanelState] = useState(0); // 0: fechado, 1: médio, 2: máximo
+  //const panelAnim = useState(new Animated.Value(0))[0];
+
   const SCREEN_HEIGHT = Dimensions.get('window').height;
   const PANEL_MIN_HEIGHT = 60;
   const PANEL_MID_HEIGHT = 300;
@@ -53,25 +68,71 @@ export default function Index() {
 
    // Animação de abrir/fechar
   const togglePanel = () => {
-    Animated.timing(panelAnim, {
+    Animated.spring(panelAnim, {
       toValue: panelOpen ? 0 : 1,
-      duration: 300,
-      easing: Easing.out(Easing.cubic),
       useNativeDriver: false,
+      friction: 10, // ajuste para suavidade
+      tension: 5, // ajuste para suavidade
     }).start();
     setPanelOpen(!panelOpen);
   };
+  // Atualiza altura do painel conforme estado
+  useEffect(() => {
+    let toValue = 0;
+    if (panelState === 1) toValue = 1;
+    if (panelState === 2) toValue = 2;
+    Animated.spring(panelAnim, {
+      toValue,
+      useNativeDriver: false,
+      friction: 10, // ajuste para suavidade
+      tension: 5, // ajuste para suavidade
+    }).start();
+  }, [panelState]);
 
   // Altura do painel
   const panelHeight = panelAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [60, 300], // altura fechada e aberta
+    inputRange: [0, 1, 2],
+    outputRange: [PANEL_MIN_HEIGHT, PANEL_MID_HEIGHT, PANEL_MAX_HEIGHT],
+    extrapolate: 'clamp',
   });
 
   // Espaço para empurrar o mapa para cima
   const mapPaddingBottom = panelAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, 300], // igual à altura máxima do painel
+    inputRange: [0, 1, 2],
+    outputRange: [0, PANEL_MID_HEIGHT, PANEL_MAX_HEIGHT],
+    extrapolate: 'clamp',
+  });
+
+  // PanResponder para arrastar o painel
+  const panResponder = PanResponder.create({
+    onMoveShouldSetPanResponder: (_, gestureState) => {
+      return Math.abs(gestureState.dy) > 10;
+    },
+    onPanResponderMove: (_, gestureState) => {
+      // Atualiza altura do painel durante o arrasto
+      let newHeight = 
+        (panelState === 2 ? PANEL_MAX_HEIGHT : panelState === 1 ? PANEL_MID_HEIGHT : PANEL_MIN_HEIGHT) 
+        - gestureState.dy;
+      if (newHeight < PANEL_MIN_HEIGHT) newHeight = PANEL_MIN_HEIGHT;
+      if (newHeight > PANEL_MAX_HEIGHT) newHeight = PANEL_MAX_HEIGHT;
+      panelAnim.setValue(
+        newHeight < PANEL_MID_HEIGHT
+          ? 0
+          : newHeight < (PANEL_MAX_HEIGHT - 100)
+          ? 1
+          : 2
+      );
+    },
+    onPanResponderRelease: (_, gestureState) => {
+      // Decide para qual estado vai ao soltar
+      if (gestureState.dy < -100) {
+        setPanelState(2); // expandir para máximo
+      } else if (gestureState.dy > 100) {
+        setPanelState(0); // fechar
+      } else {
+        setPanelState(1); // voltar para médio
+      }
+    },
   });
 
   // Solicitar permissão ao montar e iniciar watch de localização
@@ -195,6 +256,34 @@ export default function Index() {
         <Text style={[styles.title, { color: appTheme === 'dark' ? '#fff' : '#333' }]}>ÔnibusDF</Text>
       </View>
       <Animated.View style={[styles.mapContainer, { paddingBottom: mapPaddingBottom }]}>
+
+        {/* Botões no topo direito */}
+        <View style={styles.topRightButtons}>
+          {/* Botão de configurações */}
+          <TouchableOpacity
+            style={[styles.configButton, { backgroundColor: appTheme === 'dark' ? '#333' : '#fff' }]}
+            onPress={handleConfigPress}
+          >
+            <Ionicons
+              name="settings"
+              size={28}
+              color={appTheme === 'dark' ? '#999' : '#007AFF'}
+            />
+          </TouchableOpacity>
+          {/* Botão de localização */}
+          <TouchableOpacity
+            style={[styles.locateButton, { backgroundColor: appTheme === 'dark' ? '#333' : '#fff', marginBottom: 12 }]}
+            onPress={handleLocatePress}
+            disabled={loading.location}
+          >
+            <Ionicons
+              name={loading.location ? "hourglass" : "locate"}
+              size={28}
+              color={loading.location ? "#999" : "#007AFF"}
+            />
+          </TouchableOpacity>
+        </View>
+
         <MapLibreBasic
           latitude={cameraMode === 'auto' ? mapCenter.latitude : undefined}
           longitude={cameraMode === 'auto' ? mapCenter.longitude : undefined}
@@ -218,43 +307,6 @@ export default function Index() {
           onBusMarkerPress={bus => Alert.alert('Ônibus', bus.title || bus.id)}
         />
 
-        {/* Botão de Localização */}
-        <Animated.View style={{ 
-          position: 'absolute', 
-          right: 24, 
-          bottom: Animated.add(mapPaddingBottom, 45) 
-        }}>
-          <TouchableOpacity
-          style={[styles.locateButton, { backgroundColor: appTheme === 'dark' ? '#333' : '#fff' }]}
-          onPress={handleLocatePress}
-          disabled={loading.location}
-          >
-            <Ionicons
-              name={loading.location ? "hourglass" : "locate"}
-              size={28}
-              color={loading.location ? "#999" : "#007AFF"}
-            />
-          </TouchableOpacity>
-          
-        </Animated.View>
-
-        {/* Botão de Configurações */}
-        <Animated.View style={{ 
-          position: 'absolute', 
-          right: 24, 
-          bottom: Animated.add(mapPaddingBottom, 45) 
-        }}>
-          <TouchableOpacity
-          style={[styles.configButton, { backgroundColor: appTheme === 'dark' ? '#333' : '#fff' }]}
-          onPress={handleConfigPress}
-          >
-            <Ionicons
-              name="settings"
-              size={28}
-              color={appTheme === 'dark' ? '#999' : '#007AFF'}
-            />
-          </TouchableOpacity>
-        </Animated.View>
 
       </Animated.View>
 
@@ -269,7 +321,9 @@ export default function Index() {
           borderBottomLeftRadius: 0,
           borderBottomRightRadius: 0,
         }
-      ]}>
+      ]}
+      {...panResponder.panHandlers}
+      >
         <TouchableOpacity style={[styles.panelHandle, 
           {backgroundColor: appTheme === 'dark' ? '#222' : '#fff' }]}
           onPress={togglePanel}
@@ -378,11 +432,22 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 8,
   },
+  // Botoes config e local
+  topRightButtons: {
+    height: 125,
+    position: 'absolute',
+    top: 24,
+    right: 24,
+    zIndex: 10,
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    flexDirection: 'column',
+  },
   // Botão de localização
   locateButton: {
-    position: 'absolute',
-    bottom: 24,
-    right: 24,
+    //position: 'absolute',
+    //bottom: 24,
+    //right: 24,
     borderRadius: 24,
     width: 48,
     height: 48,
@@ -393,12 +458,13 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 4,
     shadowOffset: { width: 0, height: 2 },
+    marginTop: 0,
   },
   // Botão de configurações e modal
   configButton: {
-    position: 'absolute',
-    bottom: 84,
-    right: 24,
+    //position: 'absolute',
+    //bottom: 84,
+    //right: 24,
     borderRadius: 24,
     width: 48,
     height: 48,
