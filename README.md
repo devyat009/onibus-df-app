@@ -70,7 +70,7 @@ Em `<Application>` adicione a seguinte linha: `android:usesCleartextTraffic="tru
 ### Para instalar utilize o comando:
 
 ```bash
-cd android && ./gradlew assembleRelease && adb install -r android/app/build/outputs/apk/release/app-release.apk
+cd android && ./gradlew assembleRelease && cd .. && adb install -r android/app/build/outputs/apk/release/app-release.apk
 ```
 
 ## Erros:
