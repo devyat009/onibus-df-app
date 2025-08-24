@@ -95,6 +95,57 @@ const SettingsOptions = () => {
         </View>
       )}
 
+      {/* Tema do Mapa */}
+      <TouchableOpacity onPress={toggleMapExpand} style={[styles.option, { 
+        borderBottomColor: appTheme === 'dark' ? '#333' : '#eee',
+        backgroundColor: appTheme === 'dark' ? '#000' : '#fff' 
+      }]}>
+        <Text style={[styles.optionText, { color: appTheme === 'dark' ? '#fff' : '#333' }]}>Tema do Mapa</Text>
+        <Ionicons
+          name={mapExpanded ? "chevron-up" : "chevron-down"}
+          size={24}
+          color={appTheme === 'dark' ? '#ccc' : '#666'}
+        />
+      </TouchableOpacity>
+      {mapExpanded && (
+        <View style={[styles.expandedContent, { backgroundColor: appTheme === 'dark' ? '#111' : '#f9f9f9' }]}>
+          <TouchableOpacity
+            style={[
+              styles.themeToggle, 
+              mapTheme === 'light' && {
+                backgroundColor: appTheme === 'dark' ? '#555' : '#e3f2fd',
+                borderRadius: 8
+              }
+            ]}
+            onPress={() => handleMapThemeChange('light')}
+          >
+            <Ionicons
+              name={mapTheme === 'light' ? "radio-button-on" : "radio-button-off"}
+              size={20}
+              color={mapTheme === 'light' ? "#007AFF" : "#999"}
+            />
+            <Text style={[styles.themeText, { color: appTheme === 'dark' ? '#fff' : '#333' }]}>Claro</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.themeToggle, 
+              mapTheme === 'dark' && {
+                backgroundColor: appTheme === 'dark' ? '#555' : '#e3f2fd',
+                borderRadius: 8
+              }
+            ]}
+            onPress={() => handleMapThemeChange('dark')}
+          >
+            <Ionicons
+              name={mapTheme === 'dark' ? "radio-button-on" : "radio-button-off"}
+              size={20}
+              color={mapTheme === 'dark' ? "#007AFF" : "#999"}
+            />
+            <Text style={[styles.themeText, { color: appTheme === 'dark' ? '#fff' : '#333' }]}>Escuro</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* Filtro de Ônibus */}
       <TouchableOpacity onPress={toggleBusFilterExpand} style={[styles.option, { 
         borderBottomColor: appTheme === 'dark' ? '#333' : '#eee',
@@ -146,56 +197,6 @@ const SettingsOptions = () => {
         </View>
       )}
 
-      {/* Tema do Mapa */}
-      <TouchableOpacity onPress={toggleMapExpand} style={[styles.option, { 
-        borderBottomColor: appTheme === 'dark' ? '#333' : '#eee',
-        backgroundColor: appTheme === 'dark' ? '#000' : '#fff' 
-      }]}>
-        <Text style={[styles.optionText, { color: appTheme === 'dark' ? '#fff' : '#333' }]}>Tema do Mapa</Text>
-        <Ionicons
-          name={mapExpanded ? "chevron-up" : "chevron-down"}
-          size={24}
-          color={appTheme === 'dark' ? '#ccc' : '#666'}
-        />
-      </TouchableOpacity>
-      {mapExpanded && (
-        <View style={[styles.expandedContent, { backgroundColor: appTheme === 'dark' ? '#111' : '#f9f9f9' }]}>
-          <TouchableOpacity
-            style={[
-              styles.themeToggle, 
-              mapTheme === 'light' && {
-                backgroundColor: appTheme === 'dark' ? '#555' : '#e3f2fd',
-                borderRadius: 8
-              }
-            ]}
-            onPress={() => handleMapThemeChange('light')}
-          >
-            <Ionicons
-              name={mapTheme === 'light' ? "radio-button-on" : "radio-button-off"}
-              size={20}
-              color={mapTheme === 'light' ? "#007AFF" : "#999"}
-            />
-            <Text style={[styles.themeText, { color: appTheme === 'dark' ? '#fff' : '#333' }]}>Claro</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.themeToggle, 
-              mapTheme === 'dark' && {
-                backgroundColor: appTheme === 'dark' ? '#555' : '#e3f2fd',
-                borderRadius: 8
-              }
-            ]}
-            onPress={() => handleMapThemeChange('dark')}
-          >
-            <Ionicons
-              name={mapTheme === 'dark' ? "radio-button-on" : "radio-button-off"}
-              size={20}
-              color={mapTheme === 'dark' ? "#007AFF" : "#999"}
-            />
-            <Text style={[styles.themeText, { color: appTheme === 'dark' ? '#fff' : '#333' }]}>Escuro</Text>
-          </TouchableOpacity>
-        </View>
-      )}
     </View>
   );
 };
