@@ -4,6 +4,7 @@ import { LayoutAnimation, Modal, Platform, Pressable, ScrollView, StyleSheet, Sw
 import { apiService } from '../../services/api';
 import { wazeTrafficService } from '../../services/wazeApi';
 import { useAppStore } from '../../store';
+import { clearAllCache } from '../../utils/cacheManager';
 
 type UrlKey = 'buses' | 'stops' | 'lines' | 'frota' | 'busesEnhanced' | 'wazeTraffic';
 interface UrlItem {
@@ -220,6 +221,21 @@ const DeveloperOptions = () => {
               </View>
             </View>
           ))}
+
+          {/* Botão para limpar cache */}
+          <TouchableOpacity
+            style={[
+              styles.clearCacheButton,
+              { backgroundColor: appTheme === 'dark' ? '#c30505' : '#ff5252' }
+            ]}
+            onPress={async () => {
+              await clearAllCache();
+              alert('Cache limpo com sucesso!');
+            }}
+          >
+            <Ionicons name="trash-outline" size={18} color="#fff" style={{ marginRight: 8 }} />
+            <Text style={styles.clearCacheButtonText}>Limpar Cache</Text>
+          </TouchableOpacity>
         </View>
       )}
 
@@ -373,6 +389,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
   },
   closeButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  clearCacheButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 24,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  clearCacheButtonText: {
     color: '#fff',
     fontWeight: 'bold',
     fontSize: 16,

@@ -236,7 +236,7 @@ export default function Index() {
 
   // Buscar os onibus
   useEffect(() => {
-    let interval: number;
+    let interval: ReturnType<typeof setInterval>;
     const fetchBuses = async () => {
       if (!bounds) return;
       try {
@@ -244,6 +244,7 @@ export default function Index() {
         const filteredBuses = showOnlyActiveBuses 
           ? result.filter(bus => bus.linha && bus.linha.trim())
           : result;
+        
         setBuses(filteredBuses.map(bus => ({
           id: bus.id,
           latitude: bus.latitude,
@@ -254,6 +255,7 @@ export default function Index() {
           velocidade: bus.velocidade,
           sentido: bus.sentido,
           datalocal: bus.datalocal,
+          dataregistro: bus.dataregistro,
           operadora: bus.operadora,
           corOperadora: bus.corOperadora,
         })));

@@ -50,6 +50,7 @@ export async function setCacheData<T>(key: string, data: T): Promise<void> {
 export async function getCacheData<T>(key: string): Promise<T | null> {
   try {
     const cache = await AsyncStorage.getItem(key);
+    console.warn(`cache for ${key}:`, cache ? JSON.parse(cache) : null);
     return cache ? JSON.parse(cache) : null;
   } catch (error) {
     console.error(`Failed to get cached data for key ${key}:`, error);

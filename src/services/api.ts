@@ -3,6 +3,7 @@ import {
   ApiResponse,
   Bus,
   BusApiProperties,
+  BusHorario,
   BusLine,
   BusStop,
   EnhancedBus,
@@ -13,7 +14,8 @@ import {
   MapBounds,
   StopApiProperties
 } from '../types';
-import { CACHE_KEYS, CacheOptions, getCachedOrFetch } from '../utils/asyncStorage';
+//import { CACHE_KEYS, CacheOptions, getCachedOrFetch } from '../utils/asyncStorage';
+import { CACHE_KEYS, CacheOptions, getCachedOrFetch } from "@/src/utils/cacheManager";
 import appConfig from '../utils/config';
 
 class ApiError extends Error {
@@ -87,25 +89,39 @@ class ApiService {
     // Use filter from store if not provided as parameter
     const filterToUse = timeFilter || useAppStore.getState().busTimeFilter;
 
-    function filterActiveBusesLast20Minutes(buses: Bus[], filter: '30min' | '24h' = '30min'): Bus[] {
+    function filterActiveBusesRecent(buses: Bus[], filter: '30min' | '24h' = '30min'): Bus[] {
       const now = Date.now();
       const TWENTY_FOUR_HOURS = 9999999999 * 60 * 60 * 1000; // all time
-      const THIRTY_MINUTES = 30 * 60 * 1000;
+      const TWO_HOURS = 2 * 60 * 60 * 1000; // 2 horas para captar mais ônibus
       
-      const timeLimit = filter === '24h' ? TWENTY_FOUR_HOURS : THIRTY_MINUTES;
+      const timeLimit = filter === '24h' ? TWENTY_FOUR_HOURS : TWO_HOURS;
 
-      return buses.filter(bus => {
-        if (!bus.datalocal) return false;
-        // Corrige formato para ISO
-        const isoString = bus.datalocal.replace(' ', 'T');
-        const busTime = Date.parse(isoString);
+      const validBuses = buses.filter(bus => {
+        if (!bus.datalocal && !bus.dataregistro) return false;
+        
+        let busTime: number;
+        
+        if (bus.dataregistro) {
+          // dataregistro já está em formato ISO UTC
+          busTime = new Date(bus.dataregistro).getTime();
+        } else {
+          // datalocal precisa ser convertido corretamente
+          const isoString = bus.datalocal.includes('T') 
+            ? bus.datalocal 
+            : bus.datalocal.replace(' ', 'T');
+          busTime = new Date(isoString).getTime();
+        }
+        
         if (isNaN(busTime)) return false;
-        return now - busTime <= timeLimit && now - busTime >= 0;
+        const timeDiff = now - busTime;
+        return timeDiff >= 0 && timeDiff <= timeLimit;
       });
+
+      return validBuses;
     }
     
-    const filteredBuses = filterActiveBusesLast20Minutes(allBuses, filterToUse);
-    console.log(`buses on last ${filterToUse}: `, filteredBuses.length);
+    const filteredBuses = filterActiveBusesRecent(allBuses, filterToUse);
+    // console.log(`buses on last ${filterToUse}: `, filteredBuses.length);
     return filteredBuses;
     //return allBuses;
   }
@@ -124,6 +140,9 @@ class ApiService {
       this.getFrotaCached() // Use cached frota data
     ]);
 
+    // console.log(`Enhanced buses - got ${buses.length} buses from getBuses`);
+    // console.log(`Enhanced buses - got ${frota.length} frota entries`);
+
     // Create a map of numeroVeiculo -> FrotaOperadora for fast lookup
     const frotaMap = new Map<string, FrotaOperadora>();
     frota.forEach(item => {
@@ -132,8 +151,21 @@ class ApiService {
       }
     });
 
+    // console.log(`Enhanced buses - created frotaMap with ${frotaMap.size} entries`);
+
     // Enhance buses with operator information
-    return buses.map(bus => this.enhanceBusWithOperator(bus, frotaMap));
+    const enhancedBuses = buses.map(bus => this.enhanceBusWithOperator(bus, frotaMap));
+    
+    // Debug: contar por operadora
+    const operadoraCounts = new Map<string, number>();
+    enhancedBuses.forEach(bus => {
+      const operadora = bus.operadora?.nome || 'SEM_OPERADORA';
+      operadoraCounts.set(operadora, (operadoraCounts.get(operadora) || 0) + 1);
+    });
+    
+    // console.log('Onibus por operadora:', Object.fromEntries(operadoraCounts));
+    
+    return enhancedBuses;
   }
 
   /**
@@ -167,6 +199,11 @@ class ApiService {
     }
     // Se não encontrou, mantém nome completo e cor padrão
     if (!found && nomeOperadora) {
+      corOperadora = '#5a4799';
+    }
+    
+    // Garante que sempre há uma cor, mesmo sem operadora
+    if (!corOperadora) {
       corOperadora = '#5a4799';
     }
 
@@ -255,6 +292,41 @@ class ApiService {
     );
   }
 
+  // Cached version of getHorario
+  async fetchHorario(): Promise<BusHorario> {
+    const response = await this.makeRequest<BusHorario>(
+      appConfig.api.endpoints.horario
+    );
+
+    return response.features
+      .map(feature => this.transformHorarioFromApi(feature))
+      .filter(horario => horario !== null)[0] as BusHorario;
+  }
+
+  private transformHorarioFromApi(feature: ApiResponse<BusHorario>['features'][0]): BusHorario | null {
+    const { properties } = feature;
+
+    return {
+      id_linha: properties.id_linha || 0,
+      id_operadora: properties.id_operadora || 0,
+      cd_linha: properties.cd_linha || '',
+      rm_operadora: properties.rm_operadora || '',
+      sentido: properties.sentido || '',
+      hr_prevista: properties.hr_prevista || '',
+      tempo_percuso: properties.tempo_percuso || 0,
+      dias_semana: properties.dias_semana || '',
+      dia_label: properties.dia_label || '',
+    };
+  }
+
+  async getHorario(): Promise<BusHorario> {
+    return getCachedOrFetch(
+      CACHE_KEYS.BUS_HORARIO,
+      () => this.fetchHorario(),
+      { ttl: 30 * 60 * 1000 } // 30 minutes default TTL for horario
+    );
+  }
+
   private transformFrotaFromApi(feature: ApiResponse<FrotaApiProperties>['features'][0]): FrotaOperadora | null {
     const { properties } = feature;
 
@@ -290,9 +362,9 @@ class ApiService {
       velocidade: properties.velocidade ? Number(String(properties.velocidade).replace(',', '.')) : 0,
       sentido: properties.sentido || '',
       datalocal: properties.datalocal || '',
+      dataregistro: properties.dataregistro || '',
       tarifa: properties.tarifa,
       active: Boolean(properties.cd_linha || properties.prefixo),
-      dataregistro: properties.dataregistro || '',
     };
   }
 

@@ -1,140 +1,146 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { CACHE_KEYS, clearCache, getCacheData, isCacheValid } from './asyncStorage';
+import * as FileSystem from 'expo-file-system';
 
-export class CacheManager {
-  /**
-   * Check if all critical caches are valid
-   */
-  static async areMainCachesValid(): Promise<{
-    lines: boolean;
-    frota: boolean;
-    overall: boolean;
-  }> {
-    const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
-    
-    const linesValid = await isCacheValid(CACHE_KEYS.LINES, THREE_DAYS_MS);
-    const frotaValid = await isCacheValid(CACHE_KEYS.FROTA, THREE_DAYS_MS);
-    
-    return {
-      lines: linesValid,
-      frota: frotaValid,
-      overall: linesValid && frotaValid,
-    };
-  }
+const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
+const FILESYSTEM_THRESHOLD = 100 * 1024; // 100KB
 
-  /**
-   * Clear all cached data
-   */
-  static async clearAllCache(): Promise<void> {
-    await Promise.all([
-      clearCache(CACHE_KEYS.LINES),
-      clearCache(CACHE_KEYS.FROTA),
-      clearCache(CACHE_KEYS.STOPS),
-      clearCache(CACHE_KEYS.BUSES),
-    ]);
-  }
+export interface CacheOptions {
+  ttl?: number; // Time to live in milliseconds
+  forceRefresh?: boolean;
+}
 
-  /**
-   * Clear only outdated caches
-   */
-  static async clearOutdatedCache(): Promise<void> {
-    const cacheStatus = await this.areMainCachesValid();
-    
-    const clearPromises = [];
-    
-    if (!cacheStatus.lines) {
-      clearPromises.push(clearCache(CACHE_KEYS.LINES));
-    }
-    
-    if (!cacheStatus.frota) {
-      clearPromises.push(clearCache(CACHE_KEYS.FROTA));
-    }
-    
-    await Promise.all(clearPromises);
-  }
+function getFileUri(key: string) {
+  return FileSystem.documentDirectory + key + '.json';
+}
 
-  /**
-   * Get cache statistics
-   */
-  static async getCacheStats(): Promise<{
-    lines: { exists: boolean; valid: boolean; size?: number };
-    frota: { exists: boolean; valid: boolean; size?: number };
-    stops: { exists: boolean; valid: boolean; size?: number };
-  }> {
-    const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
-    const THIRTY_MINUTES_MS = 30 * 60 * 1000;
-
-    const [linesData, frotaData, stopsData] = await Promise.all([
-      getCacheData(CACHE_KEYS.LINES),
-      getCacheData(CACHE_KEYS.FROTA),
-      getCacheData(CACHE_KEYS.STOPS),
-    ]);
-
-    const [linesValid, frotaValid, stopsValid] = await Promise.all([
-      isCacheValid(CACHE_KEYS.LINES, THREE_DAYS_MS),
-      isCacheValid(CACHE_KEYS.FROTA, THREE_DAYS_MS),
-      isCacheValid(CACHE_KEYS.STOPS, THIRTY_MINUTES_MS),
-    ]);
-
-    return {
-      lines: {
-        exists: !!linesData,
-        valid: linesValid,
-        size: linesData ? JSON.stringify(linesData).length : undefined,
-      },
-      frota: {
-        exists: !!frotaData,
-        valid: frotaValid,
-        size: frotaData ? JSON.stringify(frotaData).length : undefined,
-      },
-      stops: {
-        exists: !!stopsData,
-        valid: stopsValid,
-        size: stopsData ? JSON.stringify(stopsData).length : undefined,
-      },
-    };
-  }
-
-  /**
-   * Force refresh of main caches
-   */
-  static async forceRefreshMainCaches(): Promise<void> {
-    await Promise.all([
-      clearCache(CACHE_KEYS.LINES),
-      clearCache(CACHE_KEYS.FROTA),
-    ]);
-  }
-
-  /**
-   * Generic cache-or-fetch function with configurable TTL
-   */
-  static async getCachedOrFetch<T>(
-    cacheKey: string,
-    fetchFunction: () => Promise<T>,
-    options: { ttl: number } = { ttl: 30 * 60 * 1000 } // Default 30 minutes
-  ): Promise<T> {
-    // Check if cached data exists and is valid
-    const isValid = await isCacheValid(cacheKey, options.ttl);
-    
-    if (isValid) {
-      const cachedData = await getCacheData(cacheKey);
-      if (cachedData) {
-        return cachedData as T;
-      }
-    }
-
-    // Fetch fresh data
-    const freshData = await fetchFunction();
-    
-    // Store in cache with timestamp
-    await clearCache(cacheKey);
-    const cacheData = {
-      data: freshData,
-      timestamp: Date.now(),
-    };
-    
-    await AsyncStorage.setItem(cacheKey, JSON.stringify(cacheData));
-
-    return freshData;
+async function shouldUseFileSystem(data: any): Promise<boolean> {
+  try {
+    const str = typeof data === 'string' ? data : JSON.stringify(data);
+    return str.length > FILESYSTEM_THRESHOLD;
+  } catch {
+    return false;
   }
 }
+
+export async function getCachedOrFetch<T>(
+  key: string,
+  fetcher: () => Promise<T>,
+  options: CacheOptions = {}
+): Promise<T> {
+  const { ttl = THREE_DAYS_MS, forceRefresh = false } = options;
+
+  if (forceRefresh) {
+    const data = await fetcher();
+    await setCacheData(key, data);
+    return data;
+  }
+
+  const timestamp = await AsyncStorage.getItem(`${key}_timestamp`);
+  const now = Date.now();
+
+  if (timestamp && now - Number(timestamp) < ttl) {
+    const cache = await getCacheData<T>(key);
+    if (cache !== null) return cache;
+  }
+
+  const data = await fetcher();
+  await setCacheData(key, data);
+  return data;
+}
+
+export async function setCacheData<T>(key: string, data: T): Promise<void> {
+  try {
+    const useFS = await shouldUseFileSystem(data);
+    if (useFS) {
+      const fileUri = getFileUri(key);
+      await FileSystem.writeAsStringAsync(fileUri, JSON.stringify(data));
+      await AsyncStorage.setItem(`${key}_fs`, '1');
+    } else {
+      await AsyncStorage.setItem(key, JSON.stringify(data));
+      await AsyncStorage.removeItem(`${key}_fs`);
+    }
+    await AsyncStorage.setItem(`${key}_timestamp`, String(Date.now()));
+  } catch (error) {
+    console.error(`Failed to cache data for key ${key}:`, error);
+  }
+}
+
+export async function getCacheData<T>(key: string): Promise<T | null> {
+  try {
+    const useFS = await AsyncStorage.getItem(`${key}_fs`);
+    if (useFS === '1') {
+      const fileUri = getFileUri(key);
+      const fileInfo = await FileSystem.getInfoAsync(fileUri);
+      if (!fileInfo.exists) return null;
+      const content = await FileSystem.readAsStringAsync(fileUri);
+      return JSON.parse(content);
+    } else {
+      const cache = await AsyncStorage.getItem(key);
+      return cache ? JSON.parse(cache) : null;
+    }
+  } catch (error) {
+    console.error(`Failed to get cached data for key ${key}:`, error);
+    return null;
+  }
+}
+
+export async function clearCache(key?: string): Promise<void> {
+  try {
+    if (key) {
+      await AsyncStorage.removeItem(key);
+      await AsyncStorage.removeItem(`${key}_timestamp`);
+      const useFS = await AsyncStorage.getItem(`${key}_fs`);
+      if (useFS === '1') {
+        const fileUri = getFileUri(key);
+        await FileSystem.deleteAsync(fileUri, { idempotent: true });
+        await AsyncStorage.removeItem(`${key}_fs`);
+      }
+    } else {
+      await AsyncStorage.clear();
+      // Opcional: limpar todos arquivos do FileSystem se necessário
+    }
+  } catch (error) {
+    console.error('Failed to clear cache:', error);
+  }
+}
+
+export async function clearAllCache(): Promise<void> {
+  try {
+    // Limpa AsyncStorage
+    await AsyncStorage.clear();
+
+    // Limpa todos arquivos de cache do FileSystem
+    const dir = FileSystem.documentDirectory;
+    if (dir) {
+      const files = await FileSystem.readDirectoryAsync(dir);
+      for (const file of files) {
+        if (file.endsWith('.json')) {
+          await FileSystem.deleteAsync(dir + file, { idempotent: true });
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Failed to clear all cache:', error);
+  }
+}
+
+export async function isCacheValid(key: string, ttl: number = THREE_DAYS_MS): Promise<boolean> {
+  try {
+    const timestamp = await AsyncStorage.getItem(`${key}_timestamp`);
+    if (!timestamp) return false;
+    const now = Date.now();
+    return now - Number(timestamp) < ttl;
+  } catch (error) {
+    console.error(`Failed to check cache validity for key ${key}:`, error);
+    return false;
+  }
+}
+
+// Cache keys constants
+export const CACHE_KEYS = {
+  LINES: 'bus_lines',
+  FROTA: 'frota_operadora',
+  STOPS: 'bus_stops',
+  BUSES: 'bus_positions',
+  BUS_HORARIO: 'bus_hours',
+} as const;

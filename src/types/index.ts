@@ -66,6 +66,18 @@ export interface BusLine {
   tipo: 'LineString' | 'MultiLineString';
 }
 
+export interface BusHorario {
+  id_linha: number;
+  id_operadora: number;
+  cd_linha: string;
+  rm_operadora: string;
+  sentido: string;
+  hr_prevista: string;
+  tempo_percuso: number;
+  dias_semana: string;
+  dia_label: string;
+}
+
 export interface FrotaOperadora {
   id: string;
   dataReferencia: string;
@@ -179,6 +191,7 @@ export interface AppConfig {
       stops: string;
       lines: string;
       frota: string;
+      horario: string;
     };
   };
   cache: {

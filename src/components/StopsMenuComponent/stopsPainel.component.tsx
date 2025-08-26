@@ -1,5 +1,6 @@
 import { useAppStore } from "@/src/store";
-import React from "react";
+import { CACHE_KEYS, getCacheData } from "@/src/utils/cacheManager";
+import React, { useEffect } from "react";
 import {
   ScrollView,
   StyleSheet,
@@ -24,6 +25,33 @@ const StopsPainelMenu: React.FC<StopsPainelMenuBasicProps> = ({
 
   const setTab = (tab: "nearby" | "favorites") => setActiveTab(tab);
   const tabBackground = appTheme === "dark" ? "#222" : "#f2f2f2";
+
+  const [busLines, setBusLines] = React.useState<any[]>([]);
+  const [busHorarios, setBusHorarios] = React.useState<any[]>([]);
+
+  // Get horarios from cache
+  useEffect(() => {
+    async function fetchHorariosFromCache() {
+      const horarios = await getCacheData(CACHE_KEYS.BUS_HORARIO);
+      setBusHorarios(Array.isArray(horarios) ? horarios : []);
+    }
+
+    fetchHorariosFromCache();
+  }, []);
+
+  // Get lines from Cache
+  useEffect(() => {
+    async function fetchLinesFromCache() {
+      const lines = await getCacheData(CACHE_KEYS.LINES);
+      setBusLines(Array.isArray(lines) ? lines : []);
+    }
+    fetchLinesFromCache();
+  }, []);
+
+  useEffect(() => {
+    console.warn('stops from index:', stops?.length);
+    console.warn('horarios:', busHorarios?.length);
+  }, [stops, busHorarios]);
 
   return (
     <View
@@ -62,10 +90,21 @@ const StopsPainelMenu: React.FC<StopsPainelMenuBasicProps> = ({
           </Text>
         </TouchableOpacity>
       </View>
-      <ScrollView
-        style={styles.scrollView}
-        showsVerticalScrollIndicator={false}
-      ></ScrollView>
+      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+        {isNearbyActive && stops && stops.length > 0 ? (
+          stops.map((stop) => (
+            <View key={stop.id} style={{ padding: 12, borderBottomWidth: 1, borderBottomColor: "#eee" }}>
+              <Text style={{ fontWeight: "bold", fontSize: 16 }}>{stop.nome || stop.descricao}</Text>
+              <Text style={{ color: "#888" }}>Código: {stop.codigo}</Text>
+              {stop.descricao && <Text style={{ color: "#666" }}>{stop.descricao}</Text>}
+            </View>
+          ))
+        ) : isNearbyActive && busLines.length === 0 ? (
+          <Text style={{ padding: 16, color: "#888" }}>Carregando linhas...</Text>
+        ) : isNearbyActive ? (
+          <Text style={{ padding: 16, color: "#888" }}>Nenhuma parada próxima encontrada.</Text>
+        ) : null}
+      </ScrollView>
     </View>
   );
 };

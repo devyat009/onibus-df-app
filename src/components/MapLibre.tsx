@@ -210,10 +210,21 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
   };
 
   // Manipula o dado de quando foi atualiado
-  const getAtualizadoTexto = (datalocal?: string) => {
-    if (!datalocal) return '';
-    const isoString = datalocal.replace(' ', 'T');
-    const dataBus = new Date(isoString);
+  const getAtualizadoTexto = (datalocal?: string, dataregistro?: string) => {
+    // Prioriza dataregistro (UTC) sobre datalocal (local time)
+    const timestamp = dataregistro || datalocal;
+    if (!timestamp) return '';
+    
+    let dataBus: Date;
+    if (dataregistro) {
+      // dataregistro já está em formato ISO UTC
+      dataBus = new Date(dataregistro);
+    } else {
+      // datalocal está em horário local
+      const isoString = datalocal!.replace(' ', 'T');
+      dataBus = new Date(isoString);
+    }
+    
     const agora = new Date();
     const diffMs = agora.getTime() - dataBus.getTime();
     const diffMin = Math.floor(diffMs / 60000);
@@ -525,9 +536,9 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
                 Sentido: {selectedBus.sentido === '1' ? 'Ida' : selectedBus.sentido === '2' ? 'Volta' : selectedBus.sentido}
               </Text>
             )}
-            {selectedBus.datalocal && (
+            {(selectedBus.datalocal || selectedBus.dataregistro) && (
               <Text style={[styles.popupTimestamp, { color: appTheme === 'dark' ? '#aaa' : '#888' }]}>
-                {getAtualizadoTexto(selectedBus.datalocal)}
+                {getAtualizadoTexto(selectedBus.datalocal, selectedBus.dataregistro)}
               </Text>
             )}
           </View>
