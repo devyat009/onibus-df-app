@@ -51,6 +51,7 @@ export default function Index() {
 
   // Map Camera
   const [cameraMode, setCameraMode] = useState<'auto' | 'free'>('auto');
+  const [userMapZoom, setUserMapZoom] = useState(Number);
 
   // Settings modal
   const [showSettings, setShowSettings] = useState(false);
@@ -220,6 +221,9 @@ export default function Index() {
     setBounds(bounds);
     if (cameraMode === 'auto') {
       setCameraMode('free');
+    }
+    if (zoom !== undefined) {
+      setUserMapZoom(zoom); // zoom do usuario ao mover no mapa
     }
   };
 
@@ -446,7 +450,7 @@ export default function Index() {
                 Conteúdo do painel aqui!
               </Text> */}
               <StopsPainelMenu
-                stops={stops}
+                stops={userMapZoom >= 15.4 ? stops : []}
               />
             </View>
           )}

@@ -1,5 +1,5 @@
 import { MapBounds, TrafficJam } from '../types';
-import { CacheManager } from '../utils/cacheManager';
+import { getCachedOrFetch } from '../utils/cacheManager';
 
 interface WazeJamRaw {
   uuid?: string;
@@ -140,7 +140,7 @@ class WazeTrafficService {
     // Create cache key based on bounds to cache per region
     const boundsKey = `${this.cacheKey}_${bounds.north}_${bounds.south}_${bounds.east}_${bounds.west}`;
     
-    return CacheManager.getCachedOrFetch(
+    return getCachedOrFetch(
       boundsKey,
       () => this.fetchTrafficData(bounds),
       { ttl: this.cacheTTL }

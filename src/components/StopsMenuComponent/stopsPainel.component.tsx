@@ -1,5 +1,6 @@
 import { useAppStore } from "@/src/store";
 import { CACHE_KEYS, getCacheData } from "@/src/utils/cacheManager";
+import { MaterialIcons } from "@expo/vector-icons";
 import React, { useEffect } from "react";
 import {
   ScrollView,
@@ -44,13 +45,14 @@ const StopsPainelMenu: React.FC<StopsPainelMenuBasicProps> = ({
     async function fetchLinesFromCache() {
       const lines = await getCacheData(CACHE_KEYS.LINES);
       setBusLines(Array.isArray(lines) ? lines : []);
+      //console.log('lines from cache:', lines);
     }
     fetchLinesFromCache();
   }, []);
 
   useEffect(() => {
-    console.warn('stops from index:', stops?.length);
-    console.warn('horarios:', busHorarios?.length);
+    console.log('stops from index:', stops?.length);
+    console.log('horarios:', busHorarios?.length);
   }, [stops, busHorarios]);
 
   return (
@@ -92,17 +94,61 @@ const StopsPainelMenu: React.FC<StopsPainelMenuBasicProps> = ({
       </View>
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {isNearbyActive && stops && stops.length > 0 ? (
-          stops.map((stop) => (
-            <View key={stop.id} style={{ padding: 12, borderBottomWidth: 1, borderBottomColor: "#eee" }}>
-              <Text style={{ fontWeight: "bold", fontSize: 16 }}>{stop.nome || stop.descricao}</Text>
-              <Text style={{ color: "#888" }}>Código: {stop.codigo}</Text>
-              {stop.descricao && <Text style={{ color: "#666" }}>{stop.descricao}</Text>}
-            </View>
-          ))
+          stops.map((stop) => {
+            // Bus lines for this stop (ajuste conforme sua estrutura)
+            const stopLines = busLines
+              .filter((line) => line.paradas?.includes(stop.codigo))
+              .map((line) => line.linha)
+              .join(", ");
+
+            return (
+              <View
+                key={stop.id}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  padding: 14,
+                  borderBottomWidth: 1,
+                  backgroundColor: appTheme === "dark" ? "#181818" : "#f9f9f9",
+                  borderColor: 'none',
+                  borderRadius: 8,
+                  marginHorizontal: 8,
+                  marginVertical: 6,
+                  shadowColor: "#000",
+                  shadowOpacity: 0.05,
+                  shadowRadius: 2,
+                  elevation: 1,
+                }}
+              >
+                <MaterialIcons name="directions-bus" size={32} color="#007AFF" style={{ marginRight: 12 }} />
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontWeight: "bold", fontSize: 16, color: appTheme === "dark" ? "#fff" : "#222" }}>
+                    {stop.nome || stop.descricao}
+                  </Text>
+                  <Text style={{ color: "#888", fontSize: 13, marginTop: 2 }}>
+                    Código: {String(stop.codigo)}
+                  </Text>
+                  {stop.descricao && (
+                    <Text style={{ color: "#aaa", fontSize: 12, marginTop: 2 }}>
+                      {stop.descricao}
+                    </Text>
+                  )}
+                  {stopLines && (
+                    <View style={{ flexDirection: "row", alignItems: "center", marginTop: 4 }}>
+                      <MaterialIcons name="confirmation-number" size={16} color="#007AFF" />
+                      <Text style={{ color: "#007AFF", fontSize: 13, marginLeft: 4 }}>
+                        {stopLines}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+            );
+          })
         ) : isNearbyActive && busLines.length === 0 ? (
           <Text style={{ padding: 16, color: "#888" }}>Carregando linhas...</Text>
         ) : isNearbyActive ? (
-          <Text style={{ padding: 16, color: "#888" }}>Nenhuma parada próxima encontrada.</Text>
+          <Text style={{ padding: 16, color: "#888" }}>Nenhuma parada próxima encontrada, aproxime mais o mapa.</Text>
         ) : null}
       </ScrollView>
     </View>
