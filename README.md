@@ -1,20 +1,31 @@
 ## Ônibus DF (Brasília) — App Mobile
 
-App em React Native (Expo) para visualizar ônibus e paradas do Distrito Federal (Brasília, Brasil).
-
-- Mapa: Maplibre
-- UI base: Expo + TypeScript
+Este projeto é um aplicativo desenvolvido em React Native (Expo) para visualização em tempo real de ônibus e paradas do Distrito Federal (Brasília, Brasil). O objetivo é fornecer uma interface intuitiva e moderna para acompanhamento do transporte público, utilizando mapas interativos e recursos avançados de filtragem.
 
 
+### Mapa e visualização de paradas proximas
+| ![map](https://raw.githubusercontent.com/devyat009/image-repo-for-my-repo/refs/heads/main/bus-tracker/map.png) | ![map-options](https://raw.githubusercontent.com/devyat009/image-repo-for-my-repo/refs/heads/main/bus-tracker/paradas-proximas.png) |
+|:---:|:---:|
 
-## Requisitos
+### Configurações de mapa
+Opções como mostrar onibus ativos que estão se locomovendo, mostrar paradas e trânsito em tempo real.
+| ![map-all-options](https://raw.githubusercontent.com/devyat009/image-repo-for-my-repo/refs/heads/main/bus-tracker/map-all-options.png) | ![map-options](https://raw.githubusercontent.com/devyat009/image-repo-for-my-repo/refs/heads/main/bus-tracker/map-options.png) |
+|:---:|:---:|
+
+### Configurações (tema escuro e claro)
+| ![configuracoes](https://raw.githubusercontent.com/devyat009/image-repo-for-my-repo/refs/heads/main/bus-tracker/configuracoes.png) | ![configuracoes-white](https://raw.githubusercontent.com/devyat009/image-repo-for-my-repo/refs/heads/main/bus-tracker/configuracoes-white.png) |
+|:---:|:---:|
+
+
+## Instalação
+
+### Requisitos
 
 - Node.js LTS (18+ recomendado)
 - npm (ou pnpm/yarn)
 - Expo CLI (via `npx`) e app Expo Go (opcional para testar no dispositivo)
 - Para Android (emulador/compilar local): Android Studio + SDKs
 
-## Instalação
 
 1) Clonar e instalar dependências
 
