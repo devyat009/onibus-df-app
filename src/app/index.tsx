@@ -293,7 +293,7 @@ export default function Index() {
             { color: appTheme === "dark" ? "#fff" : "#333" },
           ]}
         >
-          ÔnibusDF
+          {/**<ÔnibusDF /> */}
         </Text>
       </View>
       <Animated.View
