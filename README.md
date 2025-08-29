@@ -106,6 +106,17 @@ sdk.dir=C:\\Users\\YOUR_USER\\AppData\\Local\\Android\\Sdk
 ```
 `ctrl+O` para salvar, `Enter` e depois `ctrl-X` para sair.
 
+### Adb não econtrado
+Caso de erro do adb não encontrado:
+
+Abra o path sem nem precisar de administrador: 
+cmd
+```
+rundll32 sysdm.cpl,EditEnvironmentVariables
+```
+Adicone o caminho: `C:\Users\YOUR_USER\AppData\Local\Android\Sdk\platform-tools`
+
+
 
 ## Licença
 
