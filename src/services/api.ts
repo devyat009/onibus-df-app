@@ -307,17 +307,37 @@ class ApiService {
    * Calculate if a bus line passes through a stop using proximity analysis
    * Both coordinates should be in the same projection system
    */
-  private doesLinePassThroughStop(line: BusLine, stop: BusStop, tolerance: number = 200): boolean {
+  private doesLinePassThroughStop(line: BusLine, stop: BusStop, tolerance: number = 500): boolean {
+    if (!line.coordinates || line.coordinates.length === 0) {
+      return false;
+    }
+
     // Check if any segment of the line is within tolerance distance of the stop
     const stopCoords = [stop.longitude, stop.latitude];
     
     console.log(`Checking line ${line.codigo} with ${line.coordinates.length} coordinates against stop ${stop.codigo}`);
-    console.log(`Stop coords: [${stop.longitude}, ${stop.latitude}]`);
-    console.log(`Line coords sample:`, line.coordinates.slice(0, 3));
     
+    // Quick bounds check first to avoid expensive calculations
+    const lineBounds = this.getLineBounds(line.coordinates);
+    const stopBuffer = tolerance / 111320; // Convert meters to degrees (approximate)
+    
+    if (stopCoords[1] < lineBounds.minLat - stopBuffer || 
+        stopCoords[1] > lineBounds.maxLat + stopBuffer ||
+        stopCoords[0] < lineBounds.minLng - stopBuffer || 
+        stopCoords[0] > lineBounds.maxLng + stopBuffer) {
+      console.log(`Line ${line.codigo} is outside bounds for stop ${stop.codigo}`);
+      return false;
+    }
+    
+    // Check distance to each line segment
     for (let i = 0; i < line.coordinates.length - 1; i++) {
       const point1 = line.coordinates[i];
       const point2 = line.coordinates[i + 1];
+      
+      // Skip invalid coordinates
+      if (!point1 || !point2 || point1.length < 2 || point2.length < 2) {
+        continue;
+      }
       
       const distance = this.pointToLineDistance(stopCoords, point1, point2);
       if (distance <= tolerance) {
@@ -326,17 +346,43 @@ class ApiService {
       }
     }
     
-    console.log(`Line ${line.codigo} does NOT pass through stop ${stop.codigo}`);
     return false;
+  }
+
+  /**
+   * Get bounds of a line for quick filtering
+   */
+  private getLineBounds(coordinates: [number, number][]): { minLat: number, maxLat: number, minLng: number, maxLng: number } {
+    let minLat = Infinity, maxLat = -Infinity;
+    let minLng = Infinity, maxLng = -Infinity;
+    
+    coordinates.forEach(([lng, lat]) => {
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+      if (lng < minLng) minLng = lng;
+      if (lng > maxLng) maxLng = lng;
+    });
+    
+    return { minLat, maxLat, minLng, maxLng };
   }
 
   /**
    * Calculate distance from a point to a line segment using Haversine formula for geographic coordinates
    */
   private pointToLineDistance(point: number[], lineStart: number[], lineEnd: number[]): number {
+    if (!point || !lineStart || !lineEnd || 
+        point.length < 2 || lineStart.length < 2 || lineEnd.length < 2) {
+      return Infinity;
+    }
+
     const [px, py] = point;
     const [x1, y1] = lineStart;
     const [x2, y2] = lineEnd;
+
+    // Validate coordinates
+    if (isNaN(px) || isNaN(py) || isNaN(x1) || isNaN(y1) || isNaN(x2) || isNaN(y2)) {
+      return Infinity;
+    }
 
     // Calculate the distance from point to line segment
     const A = px - x1;
@@ -399,18 +445,89 @@ class ApiService {
 
     console.log(`Loaded ${lines.length} lines and ${horarios.length} schedules`);
 
-    // TEMPORARY: Instead of proximity algorithm, match by codigo (for testing)
-    // This will show some results if the data structure is correct
-    const relevantLines = lines.filter((line, index) => {
-      // For testing, let's take first few lines to see if schedules work
-      if (index < 3) {
-        console.log(`Taking line ${line.codigo} for testing`);
+    let relevantLines: BusLine[] = [];
+
+    // Strategy 1: Try exact code matching first (fastest and most reliable)
+    console.log('Trying strategy 1: Exact code matching...');
+    relevantLines = lines.filter(line => {
+      // Check if stop code appears in any line property or if line code matches stop
+      const lineCode = line.codigo?.toString().toLowerCase();
+      const stopCode = stop.codigo?.toString().toLowerCase();
+      
+      if (lineCode && stopCode && (lineCode.includes(stopCode) || stopCode.includes(lineCode))) {
+        console.log(`Strategy 1: Line ${line.codigo} matches stop ${stop.codigo} by code`);
         return true;
       }
       return false;
     });
 
-    console.log(`Found ${relevantLines.length} lines for testing`);
+    // Strategy 2: If no exact matches, try horarios matching
+    if (relevantLines.length === 0) {
+      console.log('Strategy 1 failed, trying strategy 2: Horarios code matching...');
+      const stopCodesInHorarios = new Set<string>();
+      
+      // Find all line codes that have schedules
+      horarios.forEach(horario => {
+        if (horario.cd_linha) {
+          stopCodesInHorarios.add(horario.cd_linha);
+        }
+      });
+      
+      console.log(`Found ${stopCodesInHorarios.size} unique line codes in horarios`);
+      
+      // Match lines that have schedules
+      relevantLines = lines.filter(line => {
+        const hasSchedule = stopCodesInHorarios.has(line.codigo);
+        if (hasSchedule) {
+          console.log(`Strategy 2: Line ${line.codigo} has schedules available`);
+        }
+        return hasSchedule;
+      });
+      
+      // Limit to first 10 lines to avoid overwhelming the user
+      if (relevantLines.length > 10) {
+        console.log(`Limiting from ${relevantLines.length} to 10 lines`);
+        relevantLines = relevantLines.slice(0, 10);
+      }
+    }
+
+    // Strategy 3: If still no matches, try proximity algorithm with multiple tolerances
+    if (relevantLines.length === 0) {
+      console.log('Strategy 2 failed, trying strategy 3: Proximity algorithm...');
+      const tolerances = [100, 300, 500, 1000, 2000]; // Try increasing distances
+      
+      for (const tolerance of tolerances) {
+        console.log(`Trying proximity with ${tolerance}m tolerance...`);
+        relevantLines = lines.filter(line => {
+          const passesThrough = this.doesLinePassThroughStop(line, stop, tolerance);
+          if (passesThrough) {
+            console.log(`Strategy 3: Line ${line.codigo} passes through stop ${stop.codigo} with ${tolerance}m tolerance`);
+          }
+          return passesThrough;
+        });
+        
+        if (relevantLines.length > 0) {
+          console.log(`Found ${relevantLines.length} lines with ${tolerance}m tolerance`);
+          break;
+        }
+      }
+    }
+
+    // Strategy 4: Ultimate fallback - show a sample of lines with schedules
+    if (relevantLines.length === 0) {
+      console.log('All strategies failed, using fallback: showing sample lines with schedules...');
+      const linesWithSchedules = lines.filter(line => {
+        return horarios.some(horario => horario.cd_linha === line.codigo);
+      });
+      
+      if (linesWithSchedules.length > 0) {
+        // Take first 5 lines that have schedules
+        relevantLines = linesWithSchedules.slice(0, 5);
+        console.log(`Fallback: showing ${relevantLines.length} sample lines with schedules`);
+      }
+    }
+
+    console.log(`Found ${relevantLines.length} lines that might serve stop ${stop.codigo}`);
 
     // Group schedules by line
     const linesWithSchedules = relevantLines.map(line => {
@@ -542,6 +659,7 @@ class ApiService {
     
     const codigo = properties.parada || properties.cd_parada || properties.codigo || properties.id || '';
     const nome = properties.descricao || properties.ds_ponto || properties.nm_parada || properties.nome || properties.ds_descricao || 'Parada de ônibus';
+    const situacao = properties.situacao || 'ATIVA'; // Default to active if not specified
 
     return {
       id: codigo || `${latitude}-${longitude}`,
@@ -550,6 +668,7 @@ class ApiService {
       descricao: nome,
       latitude,
       longitude,
+      situacao,
     };
   }
   // Precise UTM zone 23S (WGS84/SIRGAS 2000) conversion

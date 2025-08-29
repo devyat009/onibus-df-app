@@ -3,6 +3,8 @@ import { CACHE_KEYS, getCacheData } from "@/src/utils/cacheManager";
 import { MaterialIcons } from "@expo/vector-icons";
 import React, { useEffect } from "react";
 import {
+  Modal,
+  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -77,23 +79,143 @@ const StopsPainelMenu: React.FC<StopsPainelMenuBasicProps> = ({
   // Effect to handle stop selected from map
   useEffect(() => {
     if (selectedStopFromMap) {
-      setSelectedStop(selectedStopFromMap);
-      console.log('Navegando diretamente para parada do mapa:', selectedStopFromMap);
+      // Se a parada vem do mapa, não define selectedStop aqui
+      // O detalhe será mostrado no modal principal
+      console.log('Parada selecionada do mapa (será mostrada no modal):', selectedStopFromMap);
+      if (onStopSelected) {
+        onStopSelected();
+      }
     }
-  }, [selectedStopFromMap]);
+  }, [selectedStopFromMap, onStopSelected]);
 
-  // If a stop is selected, show the detail view
-  if (selectedStop) {
+  // Helper function to render stops list
+  const renderStopsList = () => (
+    <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+      {isNearbyActive && stops && stops.length > 0 ? (
+        stops.map((stop) => {
+          // Bus lines for this stop (ajuste conforme sua estrutura)
+          const stopLines = busLines
+            .filter((line) => line.paradas?.includes(stop.codigo))
+            .map((line) => line.linha)
+            .join(", ");
+
+          return (
+            <TouchableOpacity
+              key={stop.id}
+              onPress={() => handleStopPress(stop)}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                padding: 14,
+                borderBottomWidth: 1,
+                backgroundColor: appTheme === "dark" ? "#181818" : "#f9f9f9",
+                borderColor: 'none',
+                borderRadius: 8,
+                marginHorizontal: 8,
+                marginVertical: 6,
+                shadowColor: "#000",
+                shadowOpacity: 0.05,
+                shadowRadius: 2,
+                elevation: 1,
+              }}
+            >
+              <MaterialIcons name="directions-bus" size={32} color="#007AFF" style={{ marginRight: 12 }} />
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontWeight: "bold", fontSize: 16, color: appTheme === "dark" ? "#fff" : "#222" }}>
+                  {stop.nome || stop.descricao}
+                </Text>
+                <Text style={{ color: "#888", fontSize: 13, marginTop: 2 }}>
+                  Código: {String(stop.codigo)}
+                </Text>
+                {stop.descricao && (
+                  <Text style={{ color: "#aaa", fontSize: 12, marginTop: 2 }}>
+                    {stop.descricao}
+                  </Text>
+                )}
+                {stopLines && (
+                  <View style={{ flexDirection: "row", alignItems: "center", marginTop: 4 }}>
+                    <MaterialIcons name="confirmation-number" size={16} color="#007AFF" />
+                    <Text style={{ color: "#007AFF", fontSize: 13, marginLeft: 4 }}>
+                      {stopLines}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </TouchableOpacity>
+          );
+        })
+      ) : isNearbyActive && busLines.length === 0 ? (
+        <Text style={{ padding: 16, color: "#888" }}>Carregando linhas...</Text>
+      ) : isNearbyActive ? (
+        <Text style={{ padding: 16, color: "#888" }}>Nenhuma parada próxima encontrada, aproxime mais o mapa.</Text>
+      ) : null}
+    </ScrollView>
+  );
+
+  // If a stop is selected internally (not from map), show the detail view in modal
+  if (selectedStop && !selectedStopFromMap) {
     return (
-      <StopDetail 
-        stop={selectedStop} 
-        onBack={handleBackToList}
-      />
+      <>
+        {/* Renderiza a lista de paradas por baixo */}
+        <SafeAreaView
+          style={[
+            styles.container,
+            { backgroundColor: appTheme === "dark" ? "#000" : "#fff" },
+          ]}
+        >
+          <View style={[styles.tabsContainer, { backgroundColor: tabBackground }]}>
+            <TouchableOpacity
+              style={[styles.tab, isNearbyActive && styles.tabActive]}
+              onPress={() => setTab("nearby")}
+            >
+              <Text
+                style={[
+                  styles.tabText,
+                  { color: appTheme === "dark" ? "#aaa" : "#666" },
+                  isNearbyActive && styles.tabTextActive,
+                ]}
+              >
+                Proximas
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.tab, isFavoritesActive && styles.tabActive]}
+              onPress={() => setTab("favorites")}
+            >
+              <Text
+                style={[
+                  styles.tabText,
+                  { color: appTheme === "dark" ? "#aaa" : "#666" },
+                  isFavoritesActive && styles.tabTextActive,
+                ]}
+              >
+                Favoritas
+              </Text>
+            </TouchableOpacity>
+          </View>
+          {renderStopsList()}
+        </SafeAreaView>
+        
+        {/* Modal para StopDetail */}
+        <Modal
+          visible={true}
+          transparent={false}
+          animationType="slide"
+          onRequestClose={handleBackToList}
+        >
+          <SafeAreaView style={{ flex: 1 }}>
+            <StopDetail 
+              stop={selectedStop} 
+              onBack={handleBackToList}
+            />
+          </SafeAreaView>
+        </Modal>
+      </>
     );
   }
 
   return (
-    <View
+    <SafeAreaView
       style={[
         styles.container,
         { backgroundColor: appTheme === "dark" ? "#000" : "#fff" },
@@ -129,67 +251,8 @@ const StopsPainelMenu: React.FC<StopsPainelMenuBasicProps> = ({
           </Text>
         </TouchableOpacity>
       </View>
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        {isNearbyActive && stops && stops.length > 0 ? (
-          stops.map((stop) => {
-            // Bus lines for this stop (ajuste conforme sua estrutura)
-            const stopLines = busLines
-              .filter((line) => line.paradas?.includes(stop.codigo))
-              .map((line) => line.linha)
-              .join(", ");
-
-            return (
-              <TouchableOpacity
-                key={stop.id}
-                onPress={() => handleStopPress(stop)}
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  padding: 14,
-                  borderBottomWidth: 1,
-                  backgroundColor: appTheme === "dark" ? "#181818" : "#f9f9f9",
-                  borderColor: 'none',
-                  borderRadius: 8,
-                  marginHorizontal: 8,
-                  marginVertical: 6,
-                  shadowColor: "#000",
-                  shadowOpacity: 0.05,
-                  shadowRadius: 2,
-                  elevation: 1,
-                }}
-              >
-                <MaterialIcons name="directions-bus" size={32} color="#007AFF" style={{ marginRight: 12 }} />
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontWeight: "bold", fontSize: 16, color: appTheme === "dark" ? "#fff" : "#222" }}>
-                    {stop.nome || stop.descricao}
-                  </Text>
-                  <Text style={{ color: "#888", fontSize: 13, marginTop: 2 }}>
-                    Código: {String(stop.codigo)}
-                  </Text>
-                  {stop.descricao && (
-                    <Text style={{ color: "#aaa", fontSize: 12, marginTop: 2 }}>
-                      {stop.descricao}
-                    </Text>
-                  )}
-                  {stopLines && (
-                    <View style={{ flexDirection: "row", alignItems: "center", marginTop: 4 }}>
-                      <MaterialIcons name="confirmation-number" size={16} color="#007AFF" />
-                      <Text style={{ color: "#007AFF", fontSize: 13, marginLeft: 4 }}>
-                        {stopLines}
-                      </Text>
-                    </View>
-                  )}
-                </View>
-              </TouchableOpacity>
-            );
-          })
-        ) : isNearbyActive && busLines.length === 0 ? (
-          <Text style={{ padding: 16, color: "#888" }}>Carregando linhas...</Text>
-        ) : isNearbyActive ? (
-          <Text style={{ padding: 16, color: "#888" }}>Nenhuma parada próxima encontrada, aproxime mais o mapa.</Text>
-        ) : null}
-      </ScrollView>
-    </View>
+      {renderStopsList()}
+    </SafeAreaView>
   );
 };
 

@@ -18,6 +18,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MapLibreBasic from '../components/MapLibre';
 import StopsPainelMenu from '../components/StopsMenuComponent/stopsPainel.component';
+import StopDetail from '../components/StopsMenuComponent/stopDetail.component';
 import { useLocation } from "../hooks/useLocation";
 
 export default function Index() {
@@ -61,6 +62,7 @@ export default function Index() {
   const [panelOpen, setPanelOpen] = useState(false);
   const panelAnim = useState(new Animated.Value(0))[0]; // 0 = fechado, 1 = aberto
   const [selectedStopFromMap, setSelectedStopFromMap] = useState<BusStop | null>(null);
+  const [selectedStopForDetail, setSelectedStopForDetail] = useState<BusStop | null>(null);
 
     // Estado para altura do painel (0 = fechado, 1 = médio, 2 = máximo)
   const [panelState, setPanelState] = useState(0); // 0: fechado, 1: médio, 2: máximo
@@ -363,6 +365,7 @@ export default function Index() {
             if (fullStop) {
               // Define a parada selecionada
               setSelectedStopFromMap(fullStop);
+              setSelectedStopForDetail(fullStop);
               // Abre o painel se estiver fechado
               if (panelState === 0) {
                 setPanelState(2);
@@ -583,6 +586,23 @@ export default function Index() {
             </TouchableOpacity>
           </View>
         </View>
+      </Modal>
+
+      {/* Modal de Detalhe da Parada */}
+      <Modal
+        visible={selectedStopForDetail !== null}
+        transparent={false}
+        animationType="slide"
+        onRequestClose={() => setSelectedStopForDetail(null)}
+      >
+        <SafeAreaView style={{ flex: 1 }}>
+          {selectedStopForDetail && (
+            <StopDetail
+              stop={selectedStopForDetail}
+              onBack={() => setSelectedStopForDetail(null)}
+            />
+          )}
+        </SafeAreaView>
       </Modal>
     </SafeAreaView>
   );
