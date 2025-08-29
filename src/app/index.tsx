@@ -1,5 +1,6 @@
 import apiService from '@/src/services/api';
 import { useAppStore } from '@/src/store';
+import { BusStop } from '@/src/types';
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from "react";
 import {
@@ -59,6 +60,7 @@ export default function Index() {
   // Estado para controlar o painel de paradas
   const [panelOpen, setPanelOpen] = useState(false);
   const panelAnim = useState(new Animated.Value(0))[0]; // 0 = fechado, 1 = aberto
+  const [selectedStopFromMap, setSelectedStopFromMap] = useState<BusStop | null>(null);
 
     // Estado para altura do painel (0 = fechado, 1 = médio, 2 = máximo)
   const [panelState, setPanelState] = useState(0); // 0: fechado, 1: médio, 2: máximo
@@ -355,9 +357,22 @@ export default function Index() {
                 }))
               : []
           }
-          onBusStopMarkerPress={(marker) =>
-            Alert.alert("Parada", marker.title || marker.id)
-          }
+          onBusStopMarkerPress={(marker) => {
+            // Encontra a parada completa no array de paradas
+            const fullStop = stops.find(stop => stop.id === marker.id);
+            if (fullStop) {
+              // Define a parada selecionada
+              setSelectedStopFromMap(fullStop);
+              // Abre o painel se estiver fechado
+              if (panelState === 0) {
+                setPanelState(2);
+                setPanelOpen(true);
+              }
+              console.log('Parada clicada no mapa:', fullStop);
+            } else {
+              Alert.alert("Parada", marker.title || marker.id);
+            }
+          }}
           // Map change
           onRegionDidChange={handleRegionDidChange}
           // Traffic
@@ -451,6 +466,8 @@ export default function Index() {
               </Text> */}
               <StopsPainelMenu
                 stops={userMapZoom >= 15.4 ? stops : []}
+                selectedStopFromMap={selectedStopFromMap}
+                onStopSelected={() => setSelectedStopFromMap(null)}
               />
             </View>
           )}

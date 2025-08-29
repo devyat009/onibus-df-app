@@ -9,26 +9,32 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import StopDetail from "./stopDetail.component";
+import { BusStop } from "@/src/types";
 
 interface StopsPainelMenuBasicProps {
-  stops?: any[];
+  stops?: BusStop[];
+  selectedStopFromMap?: BusStop | null;
+  onStopSelected?: () => void;
 }
 const StopsPainelMenu: React.FC<StopsPainelMenuBasicProps> = ({
   stops,
+  selectedStopFromMap,
+  onStopSelected,
 }) => {
   const appTheme = useAppStore((state) => state.appTheme);
   const [activeTab, setActiveTab] = React.useState<"nearby" | "favorites">(
     "nearby"
   );
+  const [selectedStop, setSelectedStop] = React.useState<BusStop | null>(null);
+  const [busLines, setBusLines] = React.useState<any[]>([]);
+  const [busHorarios, setBusHorarios] = React.useState<any[]>([]);
 
   const isNearbyActive = activeTab === "nearby";
   const isFavoritesActive = activeTab === "favorites";
 
   const setTab = (tab: "nearby" | "favorites") => setActiveTab(tab);
   const tabBackground = appTheme === "dark" ? "#222" : "#f2f2f2";
-
-  const [busLines, setBusLines] = React.useState<any[]>([]);
-  const [busHorarios, setBusHorarios] = React.useState<any[]>([]);
 
   // Get horarios from cache
   useEffect(() => {
@@ -54,6 +60,37 @@ const StopsPainelMenu: React.FC<StopsPainelMenuBasicProps> = ({
     console.log('stops from index:', stops?.length);
     console.log('horarios:', busHorarios?.length);
   }, [stops, busHorarios]);
+
+  // Handle stop selection
+  const handleStopPress = (stop: BusStop) => {
+    setSelectedStop(stop);
+  };
+
+  const handleBackToList = () => {
+    setSelectedStop(null);
+    // Limpa a seleção do mapa quando volta para a lista
+    if (onStopSelected) {
+      onStopSelected();
+    }
+  };
+
+  // Effect to handle stop selected from map
+  useEffect(() => {
+    if (selectedStopFromMap) {
+      setSelectedStop(selectedStopFromMap);
+      console.log('Navegando diretamente para parada do mapa:', selectedStopFromMap);
+    }
+  }, [selectedStopFromMap]);
+
+  // If a stop is selected, show the detail view
+  if (selectedStop) {
+    return (
+      <StopDetail 
+        stop={selectedStop} 
+        onBack={handleBackToList}
+      />
+    );
+  }
 
   return (
     <View
@@ -102,8 +139,9 @@ const StopsPainelMenu: React.FC<StopsPainelMenuBasicProps> = ({
               .join(", ");
 
             return (
-              <View
+              <TouchableOpacity
                 key={stop.id}
+                onPress={() => handleStopPress(stop)}
                 style={{
                   flexDirection: "row",
                   alignItems: "center",
@@ -142,7 +180,7 @@ const StopsPainelMenu: React.FC<StopsPainelMenuBasicProps> = ({
                     </View>
                   )}
                 </View>
-              </View>
+              </TouchableOpacity>
             );
           })
         ) : isNearbyActive && busLines.length === 0 ? (

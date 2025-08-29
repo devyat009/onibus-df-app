@@ -70,12 +70,22 @@ export interface BusHorario {
   id_linha: number;
   id_operadora: number;
   cd_linha: string;
-  rm_operadora: string;
+  nm_operadora?: string;
   sentido: string;
   hr_prevista: string;
-  tempo_percuso: number;
+  tempo_percurso: number;
   dias_semana: string;
   dia_label: string;
+  dt_inicio_vigencia?: string;
+  dt_final_vigencia?: string;
+}
+
+export interface StopSchedule {
+  stop: BusStop;
+  lines: {
+    line: BusLine;
+    schedules: BusHorario[];
+  }[];
 }
 
 export interface FrotaOperadora {
@@ -180,6 +190,20 @@ export interface FrotaApiProperties {
   operadora?: string,
   numero_veiculo?: string,
   tipo_onibus?: string,
+}
+
+export interface HorarioApiProperties {
+  id_linha?: number;
+  id_operadora?: number;
+  cd_linha?: string;
+  nm_operadora?: string;
+  sentido?: string;
+  hr_prevista?: string;
+  tempo_percurso?: number;
+  dias_semana?: string;
+  dia_label?: string;
+  dt_inicio_vigencia?: string;
+  dt_final_vigencia?: string;
 }
 
 // App configuration

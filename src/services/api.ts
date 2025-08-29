@@ -10,9 +10,11 @@ import {
   ErrorCode,
   FrotaApiProperties,
   FrotaOperadora,
+  HorarioApiProperties,
   LineApiProperties,
   MapBounds,
-  StopApiProperties
+  StopApiProperties,
+  StopSchedule
 } from '../types';
 //import { CACHE_KEYS, CacheOptions, getCachedOrFetch } from '../utils/asyncStorage';
 import { CACHE_KEYS, CacheOptions, getCachedOrFetch } from "@/src/utils/cacheManager";
@@ -293,33 +295,175 @@ class ApiService {
   }
 
   // Cached version of getHorario
-  async fetchHorario(): Promise<BusHorario> {
-    const response = await this.makeRequest<BusHorario>(
+  async getHorarioCached(options?: CacheOptions): Promise<BusHorario[]> {
+    return getCachedOrFetch(
+      CACHE_KEYS.BUS_HORARIO,
+      () => this.getHorario(),
+      options
+    );
+  }
+
+  /**
+   * Calculate if a bus line passes through a stop using proximity analysis
+   * Both coordinates should be in the same projection system
+   */
+  private doesLinePassThroughStop(line: BusLine, stop: BusStop, tolerance: number = 200): boolean {
+    // Check if any segment of the line is within tolerance distance of the stop
+    const stopCoords = [stop.longitude, stop.latitude];
+    
+    console.log(`Checking line ${line.codigo} with ${line.coordinates.length} coordinates against stop ${stop.codigo}`);
+    console.log(`Stop coords: [${stop.longitude}, ${stop.latitude}]`);
+    console.log(`Line coords sample:`, line.coordinates.slice(0, 3));
+    
+    for (let i = 0; i < line.coordinates.length - 1; i++) {
+      const point1 = line.coordinates[i];
+      const point2 = line.coordinates[i + 1];
+      
+      const distance = this.pointToLineDistance(stopCoords, point1, point2);
+      if (distance <= tolerance) {
+        console.log(`Line ${line.codigo} passes through stop ${stop.codigo} - distance: ${distance}m`);
+        return true;
+      }
+    }
+    
+    console.log(`Line ${line.codigo} does NOT pass through stop ${stop.codigo}`);
+    return false;
+  }
+
+  /**
+   * Calculate distance from a point to a line segment using Haversine formula for geographic coordinates
+   */
+  private pointToLineDistance(point: number[], lineStart: number[], lineEnd: number[]): number {
+    const [px, py] = point;
+    const [x1, y1] = lineStart;
+    const [x2, y2] = lineEnd;
+
+    // Calculate the distance from point to line segment
+    const A = px - x1;
+    const B = py - y1;
+    const C = x2 - x1;
+    const D = y2 - y1;
+
+    const dot = A * C + B * D;
+    const lenSq = C * C + D * D;
+    
+    if (lenSq === 0) {
+      // Line segment is actually a point - calculate distance using Haversine
+      return this.haversineDistance(py, px, y1, x1);
+    }
+
+    let param = dot / lenSq;
+
+    if (param < 0) {
+      param = 0;
+    } else if (param > 1) {
+      param = 1;
+    }
+
+    const xx = x1 + param * C;
+    const yy = y1 + param * D;
+
+    // Use Haversine distance for geographic coordinates
+    return this.haversineDistance(py, px, yy, xx);
+  }
+
+  /**
+   * Calculate distance between two points using Haversine formula (returns distance in meters)
+   */
+  private haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 6371000; // Earth's radius in meters
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
+    
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+    
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  }
+
+  /**
+   * Get schedule information for a specific bus stop
+   */
+  async getStopSchedule(stop: BusStop): Promise<StopSchedule> {
+    console.log(`Getting schedule for stop: ${stop.codigo} - ${stop.nome}`);
+    
+    const [lines, horarios] = await Promise.all([
+      this.getLinesCached(),
+      this.getHorarioCached()
+    ]);
+
+    console.log(`Loaded ${lines.length} lines and ${horarios.length} schedules`);
+
+    // TEMPORARY: Instead of proximity algorithm, match by codigo (for testing)
+    // This will show some results if the data structure is correct
+    const relevantLines = lines.filter((line, index) => {
+      // For testing, let's take first few lines to see if schedules work
+      if (index < 3) {
+        console.log(`Taking line ${line.codigo} for testing`);
+        return true;
+      }
+      return false;
+    });
+
+    console.log(`Found ${relevantLines.length} lines for testing`);
+
+    // Group schedules by line
+    const linesWithSchedules = relevantLines.map(line => {
+      const lineSchedules = horarios.filter(horario => 
+        horario.cd_linha === line.codigo
+      );
+      
+      console.log(`Line ${line.codigo} has ${lineSchedules.length} schedules`);
+      
+      return {
+        line,
+        schedules: lineSchedules.sort((a, b) => a.hr_prevista.localeCompare(b.hr_prevista))
+      };
+    }).filter(item => item.schedules.length > 0);
+
+    console.log(`Final result: ${linesWithSchedules.length} lines with schedules`);
+
+    return {
+      stop,
+      lines: linesWithSchedules
+    };
+  }
+
+  // Cached version of getHorario
+  async fetchHorario(): Promise<BusHorario[]> {
+    const response = await this.makeRequest<HorarioApiProperties>(
       appConfig.api.endpoints.horario
     );
 
     return response.features
       .map(feature => this.transformHorarioFromApi(feature))
-      .filter(horario => horario !== null)[0] as BusHorario;
+      .filter(horario => horario !== null) as BusHorario[];
   }
 
-  private transformHorarioFromApi(feature: ApiResponse<BusHorario>['features'][0]): BusHorario | null {
+  private transformHorarioFromApi(feature: ApiResponse<HorarioApiProperties>['features'][0]): BusHorario | null {
     const { properties } = feature;
 
     return {
       id_linha: properties.id_linha || 0,
       id_operadora: properties.id_operadora || 0,
       cd_linha: properties.cd_linha || '',
-      rm_operadora: properties.rm_operadora || '',
+      nm_operadora: properties.nm_operadora || '',
       sentido: properties.sentido || '',
       hr_prevista: properties.hr_prevista || '',
-      tempo_percuso: properties.tempo_percuso || 0,
+      tempo_percurso: properties.tempo_percurso || 0,
       dias_semana: properties.dias_semana || '',
       dia_label: properties.dia_label || '',
+      dt_inicio_vigencia: properties.dt_inicio_vigencia || '',
+      dt_final_vigencia: properties.dt_final_vigencia || '',
     };
   }
 
-  async getHorario(): Promise<BusHorario> {
+  async getHorario(): Promise<BusHorario[]> {
     return getCachedOrFetch(
       CACHE_KEYS.BUS_HORARIO,
       () => this.fetchHorario(),
