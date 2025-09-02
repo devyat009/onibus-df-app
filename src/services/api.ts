@@ -447,51 +447,8 @@ class ApiService {
 
     let relevantLines: BusLine[] = [];
 
-    // Strategy 1: Try exact code matching first (fastest and most reliable)
-    console.log('Trying strategy 1: Exact code matching...');
-    relevantLines = lines.filter(line => {
-      // Check if stop code appears in any line property or if line code matches stop
-      const lineCode = line.codigo?.toString().toLowerCase();
-      const stopCode = stop.codigo?.toString().toLowerCase();
-      
-      if (lineCode && stopCode && (lineCode.includes(stopCode) || stopCode.includes(lineCode))) {
-        console.log(`Strategy 1: Line ${line.codigo} matches stop ${stop.codigo} by code`);
-        return true;
-      }
-      return false;
-    });
 
-    // Strategy 2: If no exact matches, try horarios matching
-    if (relevantLines.length === 0) {
-      console.log('Strategy 1 failed, trying strategy 2: Horarios code matching...');
-      const stopCodesInHorarios = new Set<string>();
-      
-      // Find all line codes that have schedules
-      horarios.forEach(horario => {
-        if (horario.cd_linha) {
-          stopCodesInHorarios.add(horario.cd_linha);
-        }
-      });
-      
-      console.log(`Found ${stopCodesInHorarios.size} unique line codes in horarios`);
-      
-      // Match lines that have schedules
-      relevantLines = lines.filter(line => {
-        const hasSchedule = stopCodesInHorarios.has(line.codigo);
-        if (hasSchedule) {
-          console.log(`Strategy 2: Line ${line.codigo} has schedules available`);
-        }
-        return hasSchedule;
-      });
-      
-      // Limit to first 10 lines to avoid overwhelming the user
-      if (relevantLines.length > 10) {
-        console.log(`Limiting from ${relevantLines.length} to 10 lines`);
-        relevantLines = relevantLines.slice(0, 10);
-      }
-    }
-
-    // Strategy 3: If still no matches, try proximity algorithm with multiple tolerances
+    // If still no matches, try proximity algorithm with multiple tolerances
     if (relevantLines.length === 0) {
       console.log('Strategy 2 failed, trying strategy 3: Proximity algorithm...');
       const tolerances = [100, 300, 500, 1000, 2000]; // Try increasing distances
@@ -510,20 +467,6 @@ class ApiService {
           console.log(`Found ${relevantLines.length} lines with ${tolerance}m tolerance`);
           break;
         }
-      }
-    }
-
-    // Strategy 4: Ultimate fallback - show a sample of lines with schedules
-    if (relevantLines.length === 0) {
-      console.log('All strategies failed, using fallback: showing sample lines with schedules...');
-      const linesWithSchedules = lines.filter(line => {
-        return horarios.some(horario => horario.cd_linha === line.codigo);
-      });
-      
-      if (linesWithSchedules.length > 0) {
-        // Take first 5 lines that have schedules
-        relevantLines = linesWithSchedules.slice(0, 5);
-        console.log(`Fallback: showing ${relevantLines.length} sample lines with schedules`);
       }
     }
 
