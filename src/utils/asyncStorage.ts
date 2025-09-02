@@ -90,4 +90,5 @@ export const CACHE_KEYS = {
   FROTA: 'frota_operadora',
   STOPS: 'bus_stops',
   BUSES: 'bus_positions',
+  FAVORITES_BUSES: 'favorites_buses'
 } as const;

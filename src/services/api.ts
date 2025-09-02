@@ -339,9 +339,18 @@ class ApiService {
         continue;
       }
       
+      // Pré-filtro rápido: se ambos os pontos estão longe, nem calcula Haversine
+      if (
+        Math.abs(point1[0] - stopCoords[0]) > 0.05 && // ~5km
+        Math.abs(point2[0] - stopCoords[0]) > 0.05 &&
+        Math.abs(point1[1] - stopCoords[1]) > 0.05 &&
+        Math.abs(point2[1] - stopCoords[1]) > 0.05
+      ) {
+        continue;
+      }
+
       const distance = this.pointToLineDistance(stopCoords, point1, point2);
       if (distance <= tolerance) {
-        console.log(`Line ${line.codigo} passes through stop ${stop.codigo} - distance: ${distance}m`);
         return true;
       }
     }
@@ -375,7 +384,7 @@ class ApiService {
       return Infinity;
     }
 
-    const [px, py] = point;
+    const [px, py] = point; // px = longitude, py = latitude
     const [x1, y1] = lineStart;
     const [x2, y2] = lineEnd;
 
@@ -395,7 +404,7 @@ class ApiService {
     
     if (lenSq === 0) {
       // Line segment is actually a point - calculate distance using Haversine
-      return this.haversineDistance(py, px, y1, x1);
+      return this.haversineDistance(y1, x1, py, px); // latitude, longitude
     }
 
     let param = dot / lenSq;
@@ -410,7 +419,7 @@ class ApiService {
     const yy = y1 + param * D;
 
     // Use Haversine distance for geographic coordinates
-    return this.haversineDistance(py, px, yy, xx);
+    return this.haversineDistance(yy, xx, py, px); // latitude, longitude
   }
 
   /**
@@ -676,9 +685,18 @@ class ApiService {
     if (geometry.type === 'LineString') {
       coordinates = geometry.coordinates as [number, number][];
     } else if (geometry.type === 'MultiLineString') {
-      // Flatten MultiLineString into a single LineString
       coordinates = (geometry.coordinates as [number, number][][]).flat();
     }
+
+    // CONVERSÃO: Detecta UTM e converte para lat/lng
+    coordinates = coordinates.map(([x, y]) => {
+      const looksLikeUtm = x > 100000 && x < 400000 && y > 8_000_000 && y < 9_200_000;
+      if (looksLikeUtm) {
+        const { lat, lng } = this.utmToLatLngZone23S(x, y);
+        return [lng, lat];
+      }
+      return [x, y];
+    });
 
     return {
       id: codigo,

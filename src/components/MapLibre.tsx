@@ -1,3 +1,4 @@
+import { MaterialIcons } from '@expo/vector-icons';
 import {
   Camera,
   Images,
@@ -8,10 +9,11 @@ import {
 } from '@maplibre/maplibre-react-native';
 import * as Location from 'expo-location';
 import React, { useState } from 'react';
-import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
+import { Animated, Easing, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useTrafficData } from '../hooks/useTrafficData';
 import { useAppStore } from '../store';
 import { TrafficJam } from '../types';
+import { CACHE_KEYS, getCacheData, setCacheData } from '../utils/asyncStorage';
 
 // Assets
 import yellowBlackStripes from '../assets/images/pattern/yellow-black.png';
@@ -90,8 +92,33 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
   const [isFetching, setIsFetching] = React.useState(false);
   const progressAnim = React.useRef(new Animated.Value(0)).current;
 
+  const [favoriteBuses, setFavoriteBuses] = useState<string[]>([]);
+  const isFavorite = selectedBus && favoriteBuses.includes(selectedBus.linha ? selectedBus.linha : '');
+
   const [userSpeed, setUserSpeed] = useState<number | null>(null);
   const [userHeading, setUserHeading] = useState<number | null>(null);
+
+
+  const toggleFavorite = () => {
+    if (!selectedBus || typeof selectedBus.linha !== 'string') return;
+    const linha = selectedBus.linha;
+    setFavoriteBuses(prev =>
+      prev.includes(linha)
+        ? prev.filter(id => id !== linha)
+        : [...prev, linha]
+    );
+  };
+  // Carregar favoritos do cache ao montar
+  React.useEffect(() => {
+    getCacheData<string[]>(CACHE_KEYS.FAVORITES_BUSES).then(data => {
+      if (Array.isArray(data)) setFavoriteBuses(data);
+    });
+  }, []);
+
+  // Salvar favoritos no cache sempre que mudar
+  React.useEffect(() => {
+    setCacheData(CACHE_KEYS.FAVORITES_BUSES, favoriteBuses);
+  }, [favoriteBuses]);
 
   function headingToCardinal(heading: number | null): string {
     if (heading == null || isNaN(heading)) return '';
@@ -381,37 +408,56 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
         ))}
 
         {/* Ônibus */}
-        {currentZoom >= 13 && buses && buses.map((bus: BusMarker) => (
-          <PointAnnotation
-            key={bus.id}
-            id={bus.id}
-            coordinate={[bus.longitude, bus.latitude]}
-            onSelected={() => handleBusSelect(bus)}
-          >
-            <View style={{
-              width: 40,
-              height: 40,
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: 'transparent',
-            }}>
+        {currentZoom >= 13 && buses && buses.map((bus: BusMarker) => {
+          const isBusFavorite = favoriteBuses.includes(bus.linha ?? '');
+          return (
+            <PointAnnotation
+              key={bus.id}
+              id={bus.id}
+              coordinate={[bus.longitude, bus.latitude]}
+              onSelected={() => handleBusSelect(bus)}
+            >
               <View style={{
-                width: 30,
-                height: 30,
-                backgroundColor: bus.corOperadora || '#5a4799',
-                borderRadius: 15,
-                borderWidth: 2,
-                borderColor: '#fff',
-                justifyContent: 'center',
+                width: 40,
+                height: 40,
                 alignItems: 'center',
-                shadowColor: '#000',
-                shadowOpacity: 0.3,
-                shadowRadius: 3,
-                shadowOffset: { width: 0, height: 1 },
-              }} />
-            </View>
-          </PointAnnotation>
-        ))}
+                justifyContent: 'center',
+                backgroundColor: 'transparent',
+              }}>
+                <View style={{
+                  width: 30,
+                  height: 30,
+                  backgroundColor: bus.corOperadora || '#5a4799',
+                  borderRadius: 15,
+                  borderWidth: 2,
+                  borderColor: '#fff',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  shadowColor: '#000',
+                  shadowOpacity: 0.3,
+                  shadowRadius: 3,
+                  shadowOffset: { width: 0, height: 1 },
+                }} />
+                {isBusFavorite && (
+                  <MaterialIcons
+                    name="star"
+                    size={16}
+                    color="#FFD600"
+                    style={{
+                      position: 'absolute',
+                      top: -4,
+                      right: -4,
+                      backgroundColor: '#fff',
+                      borderRadius: 8,
+                      overflow: 'hidden',
+                      elevation: 2,
+                    }}
+                  />
+                )}
+              </View>
+            </PointAnnotation>
+          );
+        })}
       </MapView>
       {/* Velocimetro */}
       {typeof userSpeed === 'number' && (
@@ -514,33 +560,51 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
           { opacity: fadeAnim },
           { backgroundColor: appTheme === 'dark' ? '#333' : 'white' }
         ]}>
-          <View style={styles.popupContent}>
-            <Text style={[styles.popupTitle, { color: appTheme === 'dark' ? '#fff' : '#333' }]}>
-              Linha {selectedBus.linha}
-            </Text>
-            <Text style={[styles.popupSubtitle, { color: appTheme === 'dark' ? '#ccc' : '#666' }]}>
-              Prefixo: {selectedBus.prefixo}
-            </Text>
-            {selectedBus.operadora && (
-              <Text style={[styles.popupOperator, { color: appTheme === 'dark' ? '#fff' : '#444' }]}>
-                Operadora: {selectedBus.operadora.nome}
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.popupTitle, { color: appTheme === 'dark' ? '#fff' : '#333' }]}>
+                Linha {selectedBus.linha}
               </Text>
-            )}
-            {selectedBus.velocidade && (
-              <Text style={[styles.popupInfo, { color: appTheme === 'dark' ? '#ddd' : '#444' }]}>
-                Velocidade: {selectedBus.velocidade.toFixed(1)} km/h
+              <Text style={[styles.popupSubtitle, { color: appTheme === 'dark' ? '#ccc' : '#666' }]}>
+                Prefixo: {selectedBus.prefixo}
               </Text>
-            )}
-            {selectedBus.sentido && (
-              <Text style={[styles.popupInfo, { color: appTheme === 'dark' ? '#ddd' : '#444' }]}>
-                Sentido: {selectedBus.sentido === '1' ? 'Ida' : selectedBus.sentido === '2' ? 'Volta' : selectedBus.sentido}
-              </Text>
-            )}
-            {(selectedBus.datalocal || selectedBus.dataregistro) && (
-              <Text style={[styles.popupTimestamp, { color: appTheme === 'dark' ? '#aaa' : '#888' }]}>
-                {getAtualizadoTexto(selectedBus.datalocal, selectedBus.dataregistro)}
-              </Text>
-            )}
+              {selectedBus.operadora && (
+                <Text style={[styles.popupOperator, { color: appTheme === 'dark' ? '#fff' : '#444' }]}>
+                  Operadora: {selectedBus.operadora.nome}
+                </Text>
+              )}
+              {selectedBus.velocidade && (
+                <Text style={[styles.popupInfo, { color: appTheme === 'dark' ? '#ddd' : '#444' }]}>
+                  Velocidade: {selectedBus.velocidade.toFixed(1)} km/h
+                </Text>
+              )}
+              {selectedBus.sentido && (
+                <Text style={[styles.popupInfo, { color: appTheme === 'dark' ? '#ddd' : '#444' }]}>
+                  Sentido: {selectedBus.sentido === '1' ? 'Ida' : selectedBus.sentido === '2' ? 'Volta' : selectedBus.sentido}
+                </Text>
+              )}
+              {(selectedBus.datalocal || selectedBus.dataregistro) && (
+                <Text style={[styles.popupTimestamp, { color: appTheme === 'dark' ? '#aaa' : '#888' }]}>
+                  {getAtualizadoTexto(selectedBus.datalocal, selectedBus.dataregistro)}
+                </Text>
+              )}
+            </View>
+            <TouchableOpacity
+              onPress={toggleFavorite}
+              style={[
+                styles.favoriteButton,
+                isFavorite
+                  ? { backgroundColor: '#FFD600', borderColor: '#FFD600' }
+                  : { backgroundColor: 'transparent'}
+              ]}
+              activeOpacity={0.7}
+            >
+              <MaterialIcons
+                name={isFavorite ? "bookmark" : "bookmark-outline"}
+                size={28}
+                color={isFavorite ? '#fff' : '#007AFF'}
+              />
+            </TouchableOpacity>
           </View>
         </Animated.View>
       )}
@@ -568,29 +632,35 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
   },
   popupContent: {
-    padding: 12,
+    padding: 14,
+    backgroundColor: 'red'
   },
   popupTitle: {
     fontWeight: 'bold',
     fontSize: 16,
+    marginLeft: 6,
   },
   popupSubtitle: {
     fontSize: 12,
+    marginLeft: 6,
     marginTop: 4,
   },
   popupOperator: {
     fontSize: 13,
     marginTop: 4,
+    marginLeft: 6,
     fontWeight: '600',
   },
   popupInfo: {
     fontSize: 12,
     marginTop: 2,
+    marginLeft: 6,
   },
   popupTimestamp: {
     fontSize: 10,
     marginTop: 4,
     fontStyle: 'italic',
+    marginLeft: 6,
   },
   fetchBar: {
     position: 'absolute',
@@ -601,6 +671,14 @@ const styles = StyleSheet.create({
     zIndex: 10,
     borderTopLeftRadius: 10,
     borderTopRightRadius: 10,
+  },
+  favoriteButton: {
+    marginLeft: 12,
+    //borderWidth: 2,
+    borderRadius: 20,
+    padding: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
 

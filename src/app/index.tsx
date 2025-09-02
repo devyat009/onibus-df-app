@@ -17,8 +17,8 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MapLibreBasic from '../components/MapLibre';
-import StopsPainelMenu from '../components/StopsMenuComponent/stopsPainel.component';
 import StopDetail from '../components/StopsMenuComponent/stopDetail.component';
+import StopsPainelMenu from '../components/StopsMenuComponent/stopsPainel.component';
 import { useLocation } from "../hooks/useLocation";
 
 export default function Index() {
@@ -632,7 +632,7 @@ const styles = StyleSheet.create({
     height: 125,
     position: 'absolute',
     top: 24,
-    right: 24,
+    right: 14,
     zIndex: 10,
     alignItems: 'flex-end',
     justifyContent: 'space-between',
@@ -653,13 +653,14 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 4,
     shadowOffset: { width: 0, height: 2 },
-    marginTop: 0,
+    marginTop: 10,
   },
   // Botão de configurações e modal
   configButton: {
     //position: 'absolute',
     //bottom: 84,
     //right: 24,
+    marginTop: 110,
     borderRadius: 24,
     width: 48,
     height: 48,

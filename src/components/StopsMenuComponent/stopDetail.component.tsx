@@ -1,3 +1,6 @@
+import { apiService } from '@/src/services/api';
+import { useAppStore } from '@/src/store';
+import { BusStop, StopSchedule } from '@/src/types';
 import { MaterialIcons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
 import {
@@ -8,9 +11,6 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useAppStore } from '@/src/store';
-import { apiService } from '@/src/services/api';
-import { BusStop, StopSchedule } from '@/src/types';
 
 interface StopDetailProps {
   stop: BusStop;
@@ -52,7 +52,7 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
         
         console.log('Lines loaded:', lines.length);
         console.log('Horarios loaded:', horarios.length);
-        console.log('Sample line:', lines[0]);
+        //console.log('Sample line:', lines[0]);
         console.log('Sample horario:', horarios[0]);
         
         const data = await apiService.getStopSchedule(stop);
