@@ -55,7 +55,8 @@ interface MapLibreBasicProps {
   onBusStopMarkerPress?: (busStopMarker: BusStopMarker) => void;
   busStopMarker?: BusStopMarker[];
   showTraffic?: boolean;
-
+  isFetchingBuses?: boolean; // blue loading bar
+  fetchDuration?: number;
   buses?: BusMarker[];
   onBusMarkerPress?: (bus: BusMarker) => void;
 }
@@ -73,7 +74,9 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
   style = {},
   onRegionDidChange,
   showTraffic = false,
-
+  // loading bar
+  isFetchingBuses = false, // blue loading bar
+  fetchDuration = 8000,
   // Paradas de onibus
   busStopMarker = [],
   onBusStopMarkerPress,
@@ -261,26 +264,35 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
     return `Atualizado: há ${diffMin} minutos`;
   };
 
-  // Simula busca dos ônibus a cada 5 segundos
+  // Blue loading bar
   React.useEffect(() => {
-    const fetchBuses = () => {
+    let anim: Animated.CompositeAnimation | null = null;
+
+    if (isFetchingBuses) {
       setIsFetching(true);
       progressAnim.setValue(0);
+      anim = Animated.timing(progressAnim, {
+        toValue: 1,
+        duration: fetchDuration,
+        easing: Easing.linear,
+        useNativeDriver: false,
+      });
+      anim.start();
+    } else {
       Animated.timing(progressAnim, {
         toValue: 1,
-        duration: 1200,
-        easing: Easing.linear,
+        duration: 300,
         useNativeDriver: false,
       }).start(() => {
         setIsFetching(false);
         progressAnim.setValue(0);
       });
-    };
+    }
 
-    fetchBuses(); // Busca inicial
-    const interval = setInterval(fetchBuses, 5000);
-    return () => clearInterval(interval);
-  }, [progressAnim]);
+    return () => {
+      if (anim) anim.stop();
+    };
+  }, [isFetchingBuses, fetchDuration, progressAnim]);
 
   // Obtem a velocidade do usuário
   React.useEffect(() => {

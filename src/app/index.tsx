@@ -28,6 +28,9 @@ export default function Index() {
   const [bounds, setBounds] = useState<any>(null);
   const [stops, setStops] = useState<any[]>([]);
   const [buses, setBuses] = useState<any[]>([]);
+  // loading bar
+  const [isFetchingBuses, setIsFetchingBuses] = useState(false); // blue loading bar
+  const [intervalMs, setIntervalMs] = useState(8000);
   // Store
   const { 
     loading, 
@@ -244,15 +247,22 @@ export default function Index() {
 
   // Buscar os onibus
   useEffect(() => {
-    let interval: ReturnType<typeof setInterval>;
+    let timeout: ReturnType<typeof setTimeout>;
+    let currentInterval = 8000;
+
     const fetchBuses = async () => {
-      if (!bounds) return;
+      setIsFetchingBuses(true);
+      if (!bounds) {
+        timeout = setTimeout(fetchBuses, currentInterval);
+        setIsFetchingBuses(false);
+        return;
+      }
       try {
         const result = await apiService.getEnhancedBuses(bounds);
-        const filteredBuses = showOnlyActiveBuses 
+        const filteredBuses = showOnlyActiveBuses
           ? result.filter(bus => bus.linha && bus.linha.trim())
           : result;
-        
+
         setBuses(filteredBuses.map(bus => ({
           id: bus.id,
           latitude: bus.latitude,
@@ -267,15 +277,25 @@ export default function Index() {
           operadora: bus.operadora,
           corOperadora: bus.corOperadora,
         })));
+        currentInterval = 8000; // Reset tempo ao sucesso
       } catch (error) {
-        console.error('Erro ao buscar ônibus', error);
+        console.warn('Erro ao buscar ônibus', error);
+        currentInterval += 1000; // Aumenta 1s a cada falha
+        if (currentInterval > 30000) currentInterval = 30000; // Limite máximo de 30s (opcional)
+        // debug error
+        // if(error instanceof ApiError) {
+        //   console.error('ApiError:', error.message, error.details);
+        //   // ou
+        //   // alert(JSON.stringify(error.details, null, 2));
+        // } else {
+        //   console.error(error);
+        // }
       }
+      setIsFetchingBuses(false);
+      timeout = setTimeout(fetchBuses, currentInterval);
     };
-
-    fetchBuses();
-    interval = setInterval(fetchBuses, 8000); // Atualiza a cada 8 segundos
-
-    return () => clearInterval(interval);
+    
+    return () => clearTimeout(timeout);
   }, [bounds, showOnlyActiveBuses]);
   
   return (
@@ -348,6 +368,8 @@ export default function Index() {
           zoom={cameraMode === "auto" ? mapCenter.zoom : undefined}
           style={{ flex: 1 }}
           theme={mapTheme as "light" | "dark"} // Usar tema do mapa do store
+          isFetchingBuses={isFetchingBuses} // blue loading bar
+          fetchDuration={intervalMs}
           // Paradas de onibus
           busStopMarker={
             showStopsStore
