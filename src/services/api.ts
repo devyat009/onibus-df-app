@@ -60,22 +60,51 @@ class ApiService {
         cache: 'no-store',
       });
 
+      const contentType = response.headers.get('content-type') || '';
+
       if (!response.ok) {
-        throw new ApiError('API_ERROR', `HTTP ${response.status}`, {
+        let errorBody: any = undefined;
+        try {
+          if (contentType.includes('application/json')) {
+            errorBody = await response.json();
+          } else {
+            errorBody = await response.text();
+          }
+        } catch (e) {
+          errorBody = 'Erro ao ler corpo da resposta';
+        }
+
+        throw new ApiError('API_ERROR', `HTTP ${response.status} - ${response.statusText}`, {
           status: response.status,
           statusText: response.statusText,
           url,
+          body: errorBody,
+        });
+      }
+
+      // Só tenta parsear como JSON se o content-type for correto
+      if (!contentType.includes('application/json')) {
+        const text = await response.text();
+        throw new ApiError('API_ERROR', 'Resposta não é JSON', {
+          status: response.status,
+          statusText: response.statusText,
+          url,
+          body: text,
+          contentType,
+          headers: Object.fromEntries(response.headers.entries()),
         });
       }
 
       const data = await response.json();
       return data as ApiResponse<T>;
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof ApiError) {
         throw error;
       }
-      
-      throw new ApiError('NETWORK_ERROR', 'Failed to fetch data', error);
+      throw new ApiError('NETWORK_ERROR', `Failed to fetch data: ${error?.message || error}`, {
+        originalError: error,
+        stack: error?.stack,
+      });
     }
   }
 
