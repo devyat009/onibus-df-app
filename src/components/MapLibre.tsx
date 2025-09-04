@@ -423,7 +423,10 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
               coordinate={[busStop.longitude, busStop.latitude]}
               onSelected={() => onBusStopMarkerPress?.(busStop)}
             >
-              <View style={{ position: 'relative', width: 35, height: 35 }}>
+              <View
+                collapsable={false}
+                style={{ position: 'relative', width: 35, height: 35, alignItems: 'center', justifyContent: 'center' }}
+              >
                 <View
                   style={{
                     width: 35,
@@ -432,26 +435,23 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
                     borderRadius: 9,
                     borderWidth: 2,
                     borderColor: '#fff',
-                    zIndex: 1,
                   }}
                 />
-                {isStopFavorite && (
-                  <MaterialIcons
-                    name="star"
-                    size={14}
-                    color="#FFD600"
-                    style={{
-                      position: 'absolute',
-                      top: 1,
-                      right: 1,
-                      backgroundColor: '#fff',
-                      borderRadius: 7,
-                      overflow: 'hidden',
-                      zIndex: 2,
-                      padding: 0.5,
-                    }}
-                  />
-                )}
+
+                <View
+                  pointerEvents="none"
+                  style={{
+                    position: 'absolute',
+                    top: 1,
+                    right: 1,
+                    backgroundColor: '#fff',
+                    borderRadius: 7,
+                    padding: 0.5,
+                    opacity: isStopFavorite ? 1 : 0,
+                  }}
+                >
+                  <MaterialIcons name="star" size={14} color="#FFD600" />
+                </View>
               </View>
             </PointAnnotation>
           );
