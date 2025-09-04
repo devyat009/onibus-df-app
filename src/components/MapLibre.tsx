@@ -100,6 +100,7 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
   const isFavorite = selectedBus && favoriteBuses.includes(selectedBus.linha ? selectedBus.linha : '');
   const [favoriteStops, setFavoriteStops] = useState<string[]>([]);
 
+  // Speed and heading
   const [userSpeed, setUserSpeed] = useState<number | null>(null);
   const [userHeading, setUserHeading] = useState<number | null>(null);
 
@@ -425,7 +426,13 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
             >
               <View
                 collapsable={false}
-                style={{ position: 'relative', width: 35, height: 35, alignItems: 'center', justifyContent: 'center' }}
+                style={{ 
+                  position: 'relative',
+                  width: 35,
+                  height: 35,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+              }}
               >
                 <View
                   style={{
@@ -467,43 +474,48 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
               coordinate={[bus.longitude, bus.latitude]}
               onSelected={() => handleBusSelect(bus)}
             >
-              <View style={{
-                width: 40,
-                height: 40,
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: 'transparent',
-              }}>
-                <View style={{
-                  width: 30,
-                  height: 30,
-                  backgroundColor: bus.corOperadora || '#5a4799',
-                  borderRadius: 15,
-                  borderWidth: 2,
-                  borderColor: '#fff',
-                  justifyContent: 'center',
+              <View
+                collapsable={false}
+                style={{
+                  position: 'relative',
+                  width: 40,
+                  height: 40,
                   alignItems: 'center',
-                  shadowColor: '#000',
-                  shadowOpacity: 0.3,
-                  shadowRadius: 3,
-                  shadowOffset: { width: 0, height: 1 },
-                }} />
-                {isBusFavorite && (
-                  <MaterialIcons
-                    name="star"
-                    size={16}
-                    color="#FFD600"
-                    style={{
-                      position: 'absolute',
-                      top: -4,
-                      right: -4,
-                      backgroundColor: '#fff',
-                      borderRadius: 8,
-                      overflow: 'hidden',
-                      elevation: 2,
-                    }}
-                  />
-                )}
+                  justifyContent: 'center',
+                }}
+              >
+                <View
+                  style={{
+                    width: 30,
+                    height: 30,
+                    backgroundColor: bus.corOperadora || '#5a4799',
+                    borderRadius: 15,
+                    borderWidth: 2,
+                    borderColor: '#fff',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    shadowColor: '#000',
+                    shadowOpacity: 0.3,
+                    shadowRadius: 3,
+                    shadowOffset: { width: 0, height: 1 },
+                  }}
+                />
+                <View
+                  pointerEvents="none"
+                  style={{
+                    position: 'absolute',
+                    top: -5,
+                    right: 2,
+                    backgroundColor: '#fff',
+                    borderRadius: 8,
+                    padding: 0.5,
+                    opacity: isBusFavorite ? 1 : 0,
+                    overflow: 'visible',
+                    elevation: 2,
+                  }}
+                >
+                  <MaterialIcons name="star" size={16} color="#FFD600" />
+                </View>
               </View>
             </PointAnnotation>
           );

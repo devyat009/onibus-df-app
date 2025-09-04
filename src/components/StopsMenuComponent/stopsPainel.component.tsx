@@ -1,8 +1,9 @@
 import { useAppStore } from "@/src/store";
 import { BusStop } from "@/src/types";
+import { CACHE_KEYS as CACHE_KEYS_ASYNC } from "@/src/utils/asyncStorage";
 import { CACHE_KEYS, getCacheData } from "@/src/utils/cacheManager";
 import { MaterialIcons } from "@expo/vector-icons";
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Modal,
   SafeAreaView,
@@ -32,11 +33,13 @@ const StopsPainelMenu: React.FC<StopsPainelMenuBasicProps> = ({
   const [busLines, setBusLines] = React.useState<any[]>([]);
   const [busHorarios, setBusHorarios] = React.useState<any[]>([]);
 
+  // tab state
   const isNearbyActive = activeTab === "nearby";
   const isFavoritesActive = activeTab === "favorites";
 
   const setTab = (tab: "nearby" | "favorites") => setActiveTab(tab);
   const tabBackground = appTheme === "dark" ? "#222" : "#f2f2f2";
+
 
   // Get horarios from cache
   useEffect(() => {
@@ -46,6 +49,15 @@ const StopsPainelMenu: React.FC<StopsPainelMenuBasicProps> = ({
     }
 
     fetchHorariosFromCache();
+  }, []);
+
+  // Paradas favoritas do cache
+  const [favoriteStops, setFavoriteStops] = useState<string[]>([]);
+  // Carregar favoritos das paradas do cache ao montar
+  React.useEffect(() => {
+    getCacheData<string[]>(CACHE_KEYS_ASYNC.FAVORITES_STOPS).then(data => {
+      if (Array.isArray(data)) setFavoriteStops(data);
+    });
   }, []);
 
   // Get lines from Cache
@@ -89,68 +101,78 @@ const StopsPainelMenu: React.FC<StopsPainelMenuBasicProps> = ({
   }, [selectedStopFromMap, onStopSelected]);
 
   // Helper function to render stops list
-  const renderStopsList = () => (
-    <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-      {isNearbyActive && stops && stops.length > 0 ? (
-        stops.map((stop) => {
-          // Bus lines for this stop (ajuste conforme sua estrutura)
-          const stopLines = busLines
-            .filter((line) => line.paradas?.includes(stop.codigo))
-            .map((line) => line.linha)
-            .join(", ");
+  const renderStopsList = () => {
+    // Filtra as paradas conforme a tab ativa
+    const filteredStops =
+      isFavoritesActive
+        ? (stops || []).filter(stop => favoriteStops.includes(stop.id))
+        : stops || [];
 
-          return (
-            <TouchableOpacity
-              key={stop.id}
-              onPress={() => handleStopPress(stop)}
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                padding: 14,
-                borderBottomWidth: 1,
-                backgroundColor: appTheme === "dark" ? "#181818" : "#f9f9f9",
-                borderColor: 'none',
-                borderRadius: 8,
-                marginHorizontal: 8,
-                marginVertical: 6,
-                shadowColor: "#000",
-                shadowOpacity: 0.05,
-                shadowRadius: 2,
-                elevation: 1,
-              }}
-            >
-              <MaterialIcons name="directions-bus" size={32} color="#007AFF" style={{ marginRight: 12 }} />
-              <SafeAreaView style={{ flex: 1 }}>
-                <Text style={{ fontWeight: "bold", fontSize: 16, color: appTheme === "dark" ? "#fff" : "#222" }}>
-                  {stop.nome || stop.descricao}
-                </Text>
-                <Text style={{ color: "#888", fontSize: 13, marginTop: 2 }}>
-                  Código: {String(stop.codigo)}
-                </Text>
-                {stop.descricao && (
-                  <Text style={{ color: "#aaa", fontSize: 12, marginTop: 2 }}>
-                    {stop.descricao}
+    return (
+      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+        {filteredStops.length > 0 ? (
+          filteredStops.map((stop) => {
+            // Bus lines for this stop (ajuste conforme sua estrutura)
+            const stopLines = busLines
+              .filter((line) => line.paradas?.includes(stop.codigo))
+              .map((line) => line.linha)
+              .join(", ");
+
+            return (
+              <TouchableOpacity
+                key={stop.id}
+                onPress={() => handleStopPress(stop)}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  padding: 14,
+                  borderBottomWidth: 1,
+                  backgroundColor: appTheme === "dark" ? "#181818" : "#f9f9f9",
+                  borderColor: 'none',
+                  borderRadius: 8,
+                  marginHorizontal: 8,
+                  marginVertical: 6,
+                  shadowColor: "#000",
+                  shadowOpacity: 0.05,
+                  shadowRadius: 2,
+                  elevation: 1,
+                }}
+              >
+                <MaterialIcons name="directions-bus" size={32} color="#007AFF" style={{ marginRight: 12 }} />
+                <SafeAreaView style={{ flex: 1 }}>
+                  <Text style={{ fontWeight: "bold", fontSize: 16, color: appTheme === "dark" ? "#fff" : "#222" }}>
+                    {stop.nome || stop.descricao}
                   </Text>
-                )}
-                {stopLines && (
-                  <SafeAreaView style={{ flexDirection: "row", alignItems: "center", marginTop: 4 }}>
-                    <MaterialIcons name="confirmation-number" size={16} color="#007AFF" />
-                    <Text style={{ color: "#007AFF", fontSize: 13, marginLeft: 4 }}>
-                      {stopLines}
+                  <Text style={{ color: "#888", fontSize: 13, marginTop: 2 }}>
+                    Código: {String(stop.codigo)}
+                  </Text>
+                  {stop.descricao && (
+                    <Text style={{ color: "#aaa", fontSize: 12, marginTop: 2 }}>
+                      {stop.descricao}
                     </Text>
-                  </SafeAreaView>
-                )}
-              </SafeAreaView>
-            </TouchableOpacity>
-          );
-        })
-      ) : isNearbyActive && busLines.length === 0 ? (
-        <Text style={{ padding: 16, color: "#888" }}>Carregando linhas...</Text>
-      ) : isNearbyActive ? (
-        <Text style={{ padding: 16, color: "#888" }}>Nenhuma parada próxima encontrada, aproxime mais o mapa.</Text>
-      ) : null}
-    </ScrollView>
-  );
+                  )}
+                  {stopLines && (
+                    <SafeAreaView style={{ flexDirection: "row", alignItems: "center", marginTop: 4 }}>
+                      <MaterialIcons name="confirmation-number" size={16} color="#007AFF" />
+                      <Text style={{ color: "#007AFF", fontSize: 13, marginLeft: 4 }}>
+                        {stopLines}
+                      </Text>
+                    </SafeAreaView>
+                  )}
+                </SafeAreaView>
+              </TouchableOpacity>
+            );
+          })
+        ) : isFavoritesActive ? (
+          <Text style={{ padding: 16, color: "#888" }}>Nenhuma parada favorita encontrada.</Text>
+        ) : isNearbyActive && busLines.length === 0 ? (
+          <Text style={{ padding: 16, color: "#888" }}>Carregando linhas...</Text>
+        ) : isNearbyActive ? (
+          <Text style={{ padding: 16, color: "#888" }}>Nenhuma parada próxima encontrada, aproxime mais o mapa.</Text>
+        ) : null}
+      </ScrollView>
+    );
+  };
 
   // If a stop is selected internally (not from map), show the detail view in modal
   if (selectedStop && !selectedStopFromMap) {
