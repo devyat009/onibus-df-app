@@ -1,4 +1,5 @@
 import { useAppStore } from "@/src/store";
+import { BusStop } from "@/src/types";
 import { CACHE_KEYS, getCacheData } from "@/src/utils/cacheManager";
 import { MaterialIcons } from "@expo/vector-icons";
 import React, { useEffect } from "react";
@@ -12,7 +13,6 @@ import {
   View,
 } from "react-native";
 import StopDetail from "./stopDetail.component";
-import { BusStop } from "@/src/types";
 
 interface StopsPainelMenuBasicProps {
   stops?: BusStop[];
@@ -120,7 +120,7 @@ const StopsPainelMenu: React.FC<StopsPainelMenuBasicProps> = ({
               }}
             >
               <MaterialIcons name="directions-bus" size={32} color="#007AFF" style={{ marginRight: 12 }} />
-              <View style={{ flex: 1 }}>
+              <SafeAreaView style={{ flex: 1 }}>
                 <Text style={{ fontWeight: "bold", fontSize: 16, color: appTheme === "dark" ? "#fff" : "#222" }}>
                   {stop.nome || stop.descricao}
                 </Text>
@@ -133,14 +133,14 @@ const StopsPainelMenu: React.FC<StopsPainelMenuBasicProps> = ({
                   </Text>
                 )}
                 {stopLines && (
-                  <View style={{ flexDirection: "row", alignItems: "center", marginTop: 4 }}>
+                  <SafeAreaView style={{ flexDirection: "row", alignItems: "center", marginTop: 4 }}>
                     <MaterialIcons name="confirmation-number" size={16} color="#007AFF" />
                     <Text style={{ color: "#007AFF", fontSize: 13, marginLeft: 4 }}>
                       {stopLines}
                     </Text>
-                  </View>
+                  </SafeAreaView>
                 )}
-              </View>
+              </SafeAreaView>
             </TouchableOpacity>
           );
         })

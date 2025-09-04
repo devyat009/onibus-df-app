@@ -478,7 +478,7 @@ export default function Index() {
             </TouchableOpacity>
           )}
           {panelOpen && (
-            <View
+            <SafeAreaView
               style={{
                 flex: 1,
                 justifyContent: "center",
@@ -494,7 +494,7 @@ export default function Index() {
                 selectedStopFromMap={selectedStopFromMap}
                 onStopSelected={() => setSelectedStopFromMap(null)}
               />
-            </View>
+            </SafeAreaView>
           )}
         </Animated.View>
       )}

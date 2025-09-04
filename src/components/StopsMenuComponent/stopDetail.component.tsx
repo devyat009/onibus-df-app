@@ -42,21 +42,8 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
       try {
         setLoading(true);
         setError(null);
-        console.log('Loading schedule for stop:', stop);
-        
-        // Test individual data loading
-        const [lines, horarios] = await Promise.all([
-          apiService.getLinesCached(),
-          apiService.getHorarioCached()
-        ]);
-        
-        console.log('Lines loaded:', lines.length);
-        console.log('Horarios loaded:', horarios.length);
-        //console.log('Sample line:', lines[0]);
-        console.log('Sample horario:', horarios[0]);
         
         const data = await apiService.getStopSchedule(stop);
-        console.log('Schedule data received:', data);
         setScheduleData(data);
       } catch (err) {
         console.error('Erro ao carregar horários da parada:', err);

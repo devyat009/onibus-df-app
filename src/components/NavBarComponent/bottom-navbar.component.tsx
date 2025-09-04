@@ -17,13 +17,13 @@ const BottomNavbar: React.FC<BottomNavbarProps> = ({ onTabChange }) => {
       icon: 'map-outline' as const,
       activeIcon: 'map' as const,
     },
-    {
-      name: 'stops',
-      label: 'Paradas',
-      iconSet: 'mci',
-      icon: 'bus-stop' as const,
-      activeIcon: 'bus-stop' as const,
-    },
+    // {
+    //   name: 'stops',
+    //   label: 'Paradas',
+    //   iconSet: 'mci',
+    //   icon: 'bus-stop' as const,
+    //   activeIcon: 'bus-stop' as const,
+    // },
     {
       name: 'settings',
       label: 'Configurações',
