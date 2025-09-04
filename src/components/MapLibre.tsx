@@ -368,14 +368,49 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
           showsUserHeadingIndicator={true}
         /> */}
 
-        {/* Traffic Lines */}
+        {/* Traffic Lines SEM pattern */}
         {showTraffic && trafficGeoJSON.features.length > 0 && (
-          <ShapeSource id="traffic-source" shape={trafficGeoJSON}>
+          <ShapeSource
+            id="traffic-source-normal"
+            shape={{
+              ...trafficGeoJSON,
+              features: trafficGeoJSON.features.filter(f => !f.properties.pattern),
+            }}
+          >
             <LineLayer
-              id="traffic-lines"
+              id="traffic-lines-normal"
               style={{
                 lineColor: ['get', 'color'],
-                //linePattern: ['coalesce', ['get', 'pattern'], ''], // to do
+                lineWidth: [
+                  'interpolate',
+                  ['linear'],
+                  ['zoom'],
+                  10, 2,
+                  15, 4,
+                  18, 6
+                ],
+                lineOpacity: 0.8,
+                lineCap: 'round',
+                lineJoin: 'round',
+              }}
+            />
+          </ShapeSource>
+        )}
+
+        {/* Traffic Lines COM pattern */}
+        {showTraffic && trafficGeoJSON.features.length > 0 && (
+          <ShapeSource
+            id="traffic-source-pattern"
+            shape={{
+              ...trafficGeoJSON,
+              features: trafficGeoJSON.features.filter(f => !!f.properties.pattern),
+            }}
+          >
+            <LineLayer
+              id="traffic-lines-pattern"
+              style={{
+                lineColor: ['get', 'color'],
+                linePattern: ['get', 'pattern'],
                 lineWidth: [
                   'interpolate',
                   ['linear'],
