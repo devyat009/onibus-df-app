@@ -95,8 +95,10 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
   const [isFetching, setIsFetching] = React.useState(false);
   const progressAnim = React.useRef(new Animated.Value(0)).current;
 
+  // Favoritos
   const [favoriteBuses, setFavoriteBuses] = useState<string[]>([]);
   const isFavorite = selectedBus && favoriteBuses.includes(selectedBus.linha ? selectedBus.linha : '');
+  const [favoriteStops, setFavoriteStops] = useState<string[]>([]);
 
   const [userSpeed, setUserSpeed] = useState<number | null>(null);
   const [userHeading, setUserHeading] = useState<number | null>(null);
@@ -122,6 +124,18 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
   React.useEffect(() => {
     setCacheData(CACHE_KEYS.FAVORITES_BUSES, favoriteBuses);
   }, [favoriteBuses]);
+
+  // Carregar favoritos das paradas do cache ao montar
+  React.useEffect(() => {
+    getCacheData<string[]>(CACHE_KEYS.FAVORITES_STOPS).then(data => {
+      if (Array.isArray(data)) setFavoriteStops(data);
+    });
+  }, []);
+
+  // Salvar favoritos das paradas no cache sempre que mudar
+  React.useEffect(() => {
+    setCacheData(CACHE_KEYS.FAVORITES_STOPS, favoriteStops);
+  }, [favoriteStops]);
 
   function headingToCardinal(heading: number | null): string {
     if (heading == null || isNaN(heading)) return '';
@@ -400,24 +414,48 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
         )}
 
         {/* Paradas de ônibus */}
-        {currentZoom >= 14 && busStopMarker.map((busStop: BusStopMarker) => (
-          <PointAnnotation
-            key={busStop.id}
-            id={busStop.id}
-            coordinate={[busStop.longitude, busStop.latitude]}
-            onSelected={() => onBusStopMarkerPress?.(busStop)}
-          >
-          <View style={{
-              width: 35,
-              height: 35,
-              backgroundColor: '#007AFF',
-              borderRadius: 9,
-              borderWidth: 2,
-              borderColor: '#fff'
-            }}
-          />
-          </PointAnnotation>
-        ))}
+        {currentZoom >= 14 && busStopMarker.map((busStop: BusStopMarker) => {
+          const isStopFavorite = favoriteStops.includes(busStop.id ?? '');
+          return (
+            <PointAnnotation
+              key={busStop.id}
+              id={busStop.id}
+              coordinate={[busStop.longitude, busStop.latitude]}
+              onSelected={() => onBusStopMarkerPress?.(busStop)}
+            >
+              <View style={{ position: 'relative', width: 35, height: 35 }}>
+                <View
+                  style={{
+                    width: 35,
+                    height: 35,
+                    backgroundColor: '#007AFF',
+                    borderRadius: 9,
+                    borderWidth: 2,
+                    borderColor: '#fff',
+                    zIndex: 1,
+                  }}
+                />
+                {isStopFavorite && (
+                  <MaterialIcons
+                    name="star"
+                    size={14}
+                    color="#FFD600"
+                    style={{
+                      position: 'absolute',
+                      top: 1,
+                      right: 1,
+                      backgroundColor: '#fff',
+                      borderRadius: 7,
+                      overflow: 'hidden',
+                      zIndex: 2,
+                      padding: 0.5,
+                    }}
+                  />
+                )}
+              </View>
+            </PointAnnotation>
+          );
+        })}
 
         {/* Ônibus */}
         {currentZoom >= 13 && buses && buses.map((bus: BusMarker) => {

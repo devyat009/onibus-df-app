@@ -1,6 +1,7 @@
 import { apiService } from '@/src/services/api';
 import { useAppStore } from '@/src/store';
 import { BusStop, StopSchedule } from '@/src/types';
+import { CACHE_KEYS, getCacheData, setCacheData } from '@/src/utils/asyncStorage';
 import { MaterialIcons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
 import {
@@ -22,6 +23,34 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
   const [scheduleData, setScheduleData] = useState<StopSchedule | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Favoritos
+  const [favoriteStops, setFavoriteStops] = useState<string[]>([]);
+  const isFavorite = stop && favoriteStops.includes(stop.id ? stop.id : '');
+
+  
+  const toggleFavorite = () => {
+    if (!stop || typeof stop.id !== 'string') return;
+    const id = stop.id;
+    setFavoriteStops(prev =>
+      prev.includes(id)
+        ? prev.filter(item => item !== id)
+        : [...prev, id]
+    );
+  };
+
+  // Carregar favoritos do cache ao montar
+  React.useEffect(() => {
+    getCacheData<string[]>(CACHE_KEYS.FAVORITES_STOPS).then(data => {
+      if (Array.isArray(data)) setFavoriteStops(data);
+    });
+    console.warn('favoriteStops loaded from cache:', favoriteStops);
+  }, []);
+
+  // Salvar favoritos no cache sempre que mudar
+  React.useEffect(() => {
+    setCacheData(CACHE_KEYS.FAVORITES_STOPS, favoriteStops);
+  }, [favoriteStops]);
 
   const loadStopSchedule = async () => {
     try {
@@ -96,9 +125,30 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
               color={appTheme === 'dark' ? '#fff' : '#000'} 
             />
           </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: appTheme === 'dark' ? '#fff' : '#000' }]}>
-            Carregando...
-          </Text>
+          <View style={styles.headerInfo}>
+            <Text style={[styles.headerTitle, { color: appTheme === 'dark' ? '#fff' : '#000' }]}>
+              {stop.nome || stop.descricao}
+            </Text>
+            <Text style={[styles.headerSubtitle, { color: appTheme === 'dark' ? '#aaa' : '#666' }]}>
+              Código: {stop.codigo}
+            </Text>
+          </View>
+          <TouchableOpacity
+            onPress={toggleFavorite}
+            style={[
+              styles.favoriteButton,
+              isFavorite
+                ? { backgroundColor: '#FFD600', borderColor: '#FFD600' }
+                : { backgroundColor: 'transparent'}
+            ]}
+            activeOpacity={0.7}
+          >
+            <MaterialIcons
+              name={isFavorite ? "bookmark" : "bookmark-outline"}
+              size={28}
+              color={isFavorite ? '#fff' : '#007AFF'}
+            />
+          </TouchableOpacity>
         </View>
         <View style={styles.centerContent}>
           <ActivityIndicator size="large" color="#007AFF" />
@@ -121,9 +171,30 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
               color={appTheme === 'dark' ? '#fff' : '#000'} 
             />
           </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: appTheme === 'dark' ? '#fff' : '#000' }]}>
-            Erro
-          </Text>
+          <View style={styles.headerInfo}>
+            <Text style={[styles.headerTitle, { color: appTheme === 'dark' ? '#fff' : '#000' }]}>
+              {stop.nome || stop.descricao}
+            </Text>
+            <Text style={[styles.headerSubtitle, { color: appTheme === 'dark' ? '#aaa' : '#666' }]}>
+              Código: {stop.codigo}
+            </Text>
+          </View>
+          <TouchableOpacity
+            onPress={toggleFavorite}
+            style={[
+              styles.favoriteButton,
+              isFavorite
+                ? { backgroundColor: '#FFD600', borderColor: '#FFD600' }
+                : { backgroundColor: 'transparent'}
+            ]}
+            activeOpacity={0.7}
+          >
+            <MaterialIcons
+              name={isFavorite ? "bookmark" : "bookmark-outline"}
+              size={28}
+              color={isFavorite ? '#fff' : '#007AFF'}
+            />
+          </TouchableOpacity>
         </View>
         <View style={styles.centerContent}>
           <MaterialIcons name="error" size={48} color="#ff4444" />
@@ -156,13 +227,29 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
             Código: {stop.codigo}
           </Text>
         </View>
+        <TouchableOpacity
+          onPress={toggleFavorite}
+          style={[
+            styles.favoriteButton,
+            isFavorite
+              ? { backgroundColor: '#FFD600', borderColor: '#FFD600' }
+              : { backgroundColor: 'transparent'}
+          ]}
+          activeOpacity={0.7}
+        >
+          <MaterialIcons
+            name={isFavorite ? "bookmark" : "bookmark-outline"}
+            size={28}
+            color={isFavorite ? '#fff' : '#007AFF'}
+          />
+        </TouchableOpacity>
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {scheduleData && scheduleData.lines.length > 0 ? (
           scheduleData.lines.map((lineData, index) => {
-            const nextSchedules = getNextSchedules(lineData.schedules);
-            
+            const quantidadeHorarios = 1;
+            const nextSchedules = getNextSchedules(lineData.schedules, quantidadeHorarios);
             return (
               <View 
                 key={index} 
@@ -180,63 +267,44 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
                     <Text style={[styles.lineTitle, { color: appTheme === 'dark' ? '#fff' : '#000' }]}>
                       Linha {lineData.line.codigo}
                     </Text>
-                    <Text style={[styles.lineSubtitle, { color: appTheme === 'dark' ? '#aaa' : '#666' }]}>
-                      {lineData.line.nome}
-                    </Text>
+                  </View>
+                  <View style={styles.schedulesContainer}>
+                    {nextSchedules.length > 0 ? (
+                      nextSchedules.map((schedule, scheduleIndex) => {
+                        // Calcula minutos até o próximo horário
+                        const now = new Date();
+                        const [h, m] = schedule.hr_prevista.split(':').map(Number);
+                        const scheduleDate = new Date(now);
+                        scheduleDate.setHours(h, m, 0, 0);
+                        let diff = Math.round((scheduleDate.getTime() - now.getTime()) / 60000);
+                        let displayTime = '';
+                        if (diff > 60) {
+                          displayTime = formatSchedule(schedule.hr_prevista);
+                        } else if (diff >= 0) {
+                          displayTime = `${diff} min`;
+                        } else {
+                          displayTime = formatSchedule(schedule.hr_prevista);
+                        }
+
+                        return (
+                          <View key={scheduleIndex} style={styles.scheduleRow}>
+                            <View style={styles.timeBox}>
+                              <Text style={styles.timeBoxText}>{displayTime}</Text>
+                            </View>
+                          </View>
+                        );
+                      })
+                    ) : (
+                      <View style={styles.noSchedulesContainer}>
+                        <Text style={[styles.noSchedulesText, { color: appTheme === 'dark' ? '#aaa' : '#666' }]}>
+                          Nenhum horário disponível para esta linha
+                        </Text>
+                      </View>
+                    )}
                   </View>
                 </View>
 
-                {nextSchedules.length > 0 ? (
-                  <View style={styles.schedulesContainer}>
-                    <Text style={[styles.sectionTitle, { color: appTheme === 'dark' ? '#fff' : '#000' }]}>
-                      Próximos horários hoje:
-                    </Text>
-                    {nextSchedules.map((schedule, scheduleIndex) => (
-                      <View key={scheduleIndex} style={styles.scheduleItem}>
-                        <View style={styles.timeContainer}>
-                          <Text style={[styles.scheduleTime, { color: '#007AFF' }]}>
-                            {formatSchedule(schedule.hr_prevista)}
-                          </Text>
-                          <Text style={[styles.scheduleDirection, { color: appTheme === 'dark' ? '#aaa' : '#666' }]}>
-                            {schedule.sentido}
-                          </Text>
-                        </View>
-                        <Text style={[styles.scheduleDays, { color: appTheme === 'dark' ? '#aaa' : '#666' }]}>
-                          {schedule.dia_label}
-                        </Text>
-                      </View>
-                    ))}
-                  </View>
-                ) : lineData.schedules.length > 0 ? (
-                  <View style={styles.schedulesContainer}>
-                    <Text style={[styles.sectionTitle, { color: appTheme === 'dark' ? '#fff' : '#000' }]}>
-                      Todos os horários ({lineData.schedules.length}):
-                    </Text>
-                    {lineData.schedules.slice(0, 5).map((schedule, scheduleIndex) => (
-                      <View key={scheduleIndex} style={styles.scheduleItem}>
-                        <View style={styles.timeContainer}>
-                          <Text style={[styles.scheduleTime, { color: '#007AFF' }]}>
-                            {formatSchedule(schedule.hr_prevista)}
-                          </Text>
-                          <Text style={[styles.scheduleDirection, { color: appTheme === 'dark' ? '#aaa' : '#666' }]}>
-                            {schedule.sentido}
-                          </Text>
-                        </View>
-                        <Text style={[styles.scheduleDays, { color: appTheme === 'dark' ? '#aaa' : '#666' }]}>
-                          {schedule.dia_label}
-                        </Text>
-                      </View>
-                    ))}
-                  </View>
-                ) : (
-                  <View style={styles.noSchedulesContainer}>
-                    <Text style={[styles.noSchedulesText, { color: appTheme === 'dark' ? '#aaa' : '#666' }]}>
-                      Nenhum horário disponível para esta linha
-                    </Text>
-                  </View>
-                )}
-
-                <TouchableOpacity 
+                {/* <TouchableOpacity 
                   style={styles.viewAllButton}
                   onPress={() => {
                     console.log('Ver todos os horários para linha:', lineData.line.codigo);
@@ -244,7 +312,7 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
                 >
                   <Text style={styles.viewAllButtonText}>Ver todos os horários</Text>
                   <MaterialIcons name="chevron-right" size={20} color="#007AFF" />
-                </TouchableOpacity>
+                </TouchableOpacity> */}
               </View>
             );
           })
@@ -298,7 +366,7 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    padding: 16,
+    padding: 10,
   },
   centerContent: {
     flex: 1,
@@ -328,9 +396,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   lineCard: {
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 10,
     borderWidth: 1,
   },
   lineHeader: {
@@ -339,7 +407,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   lineInfo: {
-    marginLeft: 12,
+    marginLeft: 8,
     flex: 1,
   },
   lineTitle: {
@@ -410,6 +478,39 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
     marginTop: 8,
+  },
+  scheduleRow: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  paddingVertical: 10,
+  borderBottomWidth: 1,
+  borderBottomColor: '#eee',
+  },
+  lineInfoLeft: {
+    flex: 1,
+  },
+  timeBox: {
+    minWidth: 56,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: '#007AFF',
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timeBoxText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  favoriteButton: {
+    marginLeft: 12,
+    //borderWidth: 2,
+    borderRadius: 20,
+    padding: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
 
