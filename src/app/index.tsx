@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import {
   Alert,
   Animated,
+  BackHandler,
   Dimensions,
   Modal,
   PanResponder,
@@ -191,6 +192,39 @@ export default function Index() {
       setInitialized(true);
     }
   }, [userLocation, initialized]);
+
+  // BackHandler para Android - detecta quando painel está expandido ou modal está aberto
+  useEffect(() => {
+    const backAction = () => {
+      // Se modal de configurações está aberto, fecha o modal
+      if (showSettings) {
+        setShowSettings(false);
+        return true;
+      }
+      
+      // Se modal de detalhes está aberto, fecha o modal
+      if (selectedStopForDetail) {
+        setSelectedStopForDetail(null);
+        return true;
+      }
+      
+      if (panelState === 2) {
+        // Se painel está maximizado, volta para o estado médio
+        setPanelState(1);
+        return true;
+      } else if (panelState === 1) {
+        // Se painel está no meio, fecha completamente
+        setPanelState(0);
+        setPanelOpen(false);
+        return true;
+      }
+      // Se painel está fechado, deixa o comportamento padrão (fechar app)
+      return false;
+    };
+
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);
+    return () => backHandler.remove();
+  }, [panelState, selectedStopForDetail, showSettings]);
 
   // Centralizar no usuário
   const handleLocatePress = async () => {

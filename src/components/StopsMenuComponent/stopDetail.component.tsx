@@ -124,7 +124,7 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
               styles.favoriteButton,
               isCurrentStopFavorite
                 ? { backgroundColor: '#FFD600', borderColor: '#FFD600' }
-                : { backgroundColor: 'transparent'}
+                : { backgroundColor: 'transparent', borderColor: '#007AFF', borderWidth: 2}
             ]}
             activeOpacity={0.7}
           >
@@ -170,7 +170,7 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
               styles.favoriteButton,
               isCurrentStopFavorite
                 ? { backgroundColor: '#FFD600', borderColor: '#FFD600' }
-                : { backgroundColor: 'transparent'}
+                : { backgroundColor: 'transparent', borderColor: '#007AFF', borderWidth: 2}
             ]}
             activeOpacity={0.7}
           >
@@ -218,7 +218,7 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
             styles.favoriteButton,
             isCurrentStopFavorite
               ? { backgroundColor: '#FFD600', borderColor: '#FFD600' }
-              : { backgroundColor: 'transparent'}
+              : { backgroundColor: 'transparent', borderColor: '#007AFF', borderWidth: 2}
           ]}
           activeOpacity={0.7}
         >
@@ -491,7 +491,7 @@ const styles = StyleSheet.create({
   },
   favoriteButton: {
     marginLeft: 12,
-    //borderWidth: 2,
+    borderWidth: 2,
     borderRadius: 20,
     padding: 6,
     alignItems: 'center',
