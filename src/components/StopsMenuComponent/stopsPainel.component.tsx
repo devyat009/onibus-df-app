@@ -1,17 +1,17 @@
+import { useStopFavorites } from "@/src/hooks/useFavorites";
 import { useAppStore } from "@/src/store";
 import { BusStop } from "@/src/types";
-import { CACHE_KEYS as CACHE_KEYS_ASYNC } from "@/src/utils/asyncStorage";
 import { CACHE_KEYS, getCacheData } from "@/src/utils/cacheManager";
 import { MaterialIcons } from "@expo/vector-icons";
-import React, { useEffect, useState } from "react";
+import React, { useEffect } from "react";
 import {
-  Modal,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    Modal,
+    SafeAreaView,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import StopDetail from "./stopDetail.component";
 
@@ -51,29 +51,18 @@ const StopsPainelMenu: React.FC<StopsPainelMenuBasicProps> = ({
     fetchHorariosFromCache();
   }, []);
 
-  // Paradas favoritas do cache
-  const [favoriteStops, setFavoriteStops] = useState<string[]>([]);
-  // Carregar favoritos das paradas do cache ao montar
-  React.useEffect(() => {
-    getCacheData<string[]>(CACHE_KEYS_ASYNC.FAVORITES_STOPS).then(data => {
-      if (Array.isArray(data)) setFavoriteStops(data);
-    });
-  }, []);
+  // Favoritos usando hook personalizado
+  const { favorites: favoriteStops } = useStopFavorites();
 
-  // Get lines from Cache
   useEffect(() => {
     async function fetchLinesFromCache() {
       const lines = await getCacheData(CACHE_KEYS.LINES);
       setBusLines(Array.isArray(lines) ? lines : []);
-      //console.log('lines from cache:', lines);
     }
     fetchLinesFromCache();
   }, []);
 
-  useEffect(() => {
-    console.log('stops from index:', stops?.length);
-    console.log('horarios:', busHorarios?.length);
-  }, [stops, busHorarios]);
+
 
   // Handle stop selection
   const handleStopPress = (stop: BusStop) => {

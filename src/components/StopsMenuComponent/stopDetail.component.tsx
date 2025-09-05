@@ -1,7 +1,7 @@
+import { useStopFavorites } from '@/src/hooks/useFavorites';
 import { apiService } from '@/src/services/api';
 import { useAppStore } from '@/src/store';
 import { BusStop, StopSchedule } from '@/src/types';
-import { CACHE_KEYS, getCacheData, setCacheData } from '@/src/utils/asyncStorage';
 import { MaterialIcons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
 import {
@@ -24,33 +24,18 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Favoritos
-  const [favoriteStops, setFavoriteStops] = useState<string[]>([]);
-  const isFavorite = stop && favoriteStops.includes(stop.id ? stop.id : '');
+  // Favoritos usando hook personalizado
+  const { isFavorite, toggleFavorite } = useStopFavorites();
 
-  
-  const toggleFavorite = () => {
-    if (!stop || typeof stop.id !== 'string') return;
-    const id = stop.id;
-    setFavoriteStops(prev =>
-      prev.includes(id)
-        ? prev.filter(item => item !== id)
-        : [...prev, id]
-    );
+  // Verifica se a parada atual é favorita
+  const isCurrentStopFavorite = stop?.id ? isFavorite(stop.id) : false;
+
+  // Função para alternar favorito da parada atual
+  const handleToggleFavorite = () => {
+    if (stop?.id) {
+      toggleFavorite(stop.id);
+    }
   };
-
-  // Carregar favoritos do cache ao montar
-  React.useEffect(() => {
-    getCacheData<string[]>(CACHE_KEYS.FAVORITES_STOPS).then(data => {
-      if (Array.isArray(data)) setFavoriteStops(data);
-    });
-    console.warn('favoriteStops loaded from cache:', favoriteStops);
-  }, []);
-
-  // Salvar favoritos no cache sempre que mudar
-  React.useEffect(() => {
-    setCacheData(CACHE_KEYS.FAVORITES_STOPS, favoriteStops);
-  }, [favoriteStops]);
 
   const loadStopSchedule = async () => {
     try {
@@ -134,19 +119,19 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
             </Text>
           </View>
           <TouchableOpacity
-            onPress={toggleFavorite}
+            onPress={handleToggleFavorite}
             style={[
               styles.favoriteButton,
-              isFavorite
+              isCurrentStopFavorite
                 ? { backgroundColor: '#FFD600', borderColor: '#FFD600' }
                 : { backgroundColor: 'transparent'}
             ]}
             activeOpacity={0.7}
           >
             <MaterialIcons
-              name={isFavorite ? "bookmark" : "bookmark-outline"}
+              name={isCurrentStopFavorite ? "bookmark" : "bookmark-outline"}
               size={28}
-              color={isFavorite ? '#fff' : '#007AFF'}
+              color={isCurrentStopFavorite ? '#fff' : '#007AFF'}
             />
           </TouchableOpacity>
         </View>
@@ -180,19 +165,19 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
             </Text>
           </View>
           <TouchableOpacity
-            onPress={toggleFavorite}
+            onPress={handleToggleFavorite}
             style={[
               styles.favoriteButton,
-              isFavorite
+              isCurrentStopFavorite
                 ? { backgroundColor: '#FFD600', borderColor: '#FFD600' }
                 : { backgroundColor: 'transparent'}
             ]}
             activeOpacity={0.7}
           >
             <MaterialIcons
-              name={isFavorite ? "bookmark" : "bookmark-outline"}
+              name={isCurrentStopFavorite ? "bookmark" : "bookmark-outline"}
               size={28}
-              color={isFavorite ? '#fff' : '#007AFF'}
+              color={isCurrentStopFavorite ? '#fff' : '#007AFF'}
             />
           </TouchableOpacity>
         </View>
@@ -228,19 +213,19 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
           </Text>
         </View>
         <TouchableOpacity
-          onPress={toggleFavorite}
+          onPress={handleToggleFavorite}
           style={[
             styles.favoriteButton,
-            isFavorite
+            isCurrentStopFavorite
               ? { backgroundColor: '#FFD600', borderColor: '#FFD600' }
               : { backgroundColor: 'transparent'}
           ]}
           activeOpacity={0.7}
         >
           <MaterialIcons
-            name={isFavorite ? "bookmark" : "bookmark-outline"}
+            name={isCurrentStopFavorite ? "bookmark" : "bookmark-outline"}
             size={28}
-            color={isFavorite ? '#fff' : '#007AFF'}
+            color={isCurrentStopFavorite ? '#fff' : '#007AFF'}
           />
         </TouchableOpacity>
       </View>

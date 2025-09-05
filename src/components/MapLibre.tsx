@@ -8,12 +8,12 @@ import {
   ShapeSource
 } from '@maplibre/maplibre-react-native';
 import * as Location from 'expo-location';
-import React, { useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Animated, Easing, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useBusFavorites, useStopFavorites } from '../hooks/useFavorites';
 import { useTrafficData } from '../hooks/useTrafficData';
 import { useAppStore } from '../store';
 import { TrafficJam } from '../types';
-import { CACHE_KEYS, getCacheData, setCacheData } from '../utils/asyncStorage';
 
 // Assets
 import yellowBlackStripes from '../assets/images/pattern/yellow-black.png';
@@ -95,48 +95,24 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
   const [isFetching, setIsFetching] = React.useState(false);
   const progressAnim = React.useRef(new Animated.Value(0)).current;
 
-  // Favoritos
-  const [favoriteBuses, setFavoriteBuses] = useState<string[]>([]);
-  const isFavorite = selectedBus && favoriteBuses.includes(selectedBus.linha ? selectedBus.linha : '');
-  const [favoriteStops, setFavoriteStops] = useState<string[]>([]);
+  // Favoritos usando hook personalizado
+  const { isFavorite: isBusFavorite, toggleFavorite: toggleBusFavorite } = useBusFavorites();
+  const { isFavorite: isStopFavorite } = useStopFavorites();
 
-  // Speed and heading
+  // Velocidade e direção do usuário
   const [userSpeed, setUserSpeed] = useState<number | null>(null);
   const [userHeading, setUserHeading] = useState<number | null>(null);
 
+  // Função para alternar favorito do ônibus selecionado
+  const toggleFavorite = useCallback(() => {
+    if (!selectedBus?.linha) return;
+    toggleBusFavorite(selectedBus.linha);
+  }, [selectedBus?.linha, toggleBusFavorite]);
 
-  const toggleFavorite = () => {
-    if (!selectedBus || typeof selectedBus.linha !== 'string') return;
-    const linha = selectedBus.linha;
-    setFavoriteBuses(prev =>
-      prev.includes(linha)
-        ? prev.filter(id => id !== linha)
-        : [...prev, linha]
-    );
-  };
-  // Carregar favoritos do cache ao montar
-  React.useEffect(() => {
-    getCacheData<string[]>(CACHE_KEYS.FAVORITES_BUSES).then(data => {
-      if (Array.isArray(data)) setFavoriteBuses(data);
-    });
-  }, []);
-
-  // Salvar favoritos no cache sempre que mudar
-  React.useEffect(() => {
-    setCacheData(CACHE_KEYS.FAVORITES_BUSES, favoriteBuses);
-  }, [favoriteBuses]);
-
-  // Carregar favoritos das paradas do cache ao montar
-  React.useEffect(() => {
-    getCacheData<string[]>(CACHE_KEYS.FAVORITES_STOPS).then(data => {
-      if (Array.isArray(data)) setFavoriteStops(data);
-    });
-  }, []);
-
-  // Salvar favoritos das paradas no cache sempre que mudar
-  React.useEffect(() => {
-    setCacheData(CACHE_KEYS.FAVORITES_STOPS, favoriteStops);
-  }, [favoriteStops]);
+  // Verifica se o ônibus atual é favorito
+  const isFavorite = useMemo(() => {
+    return selectedBus?.linha ? isBusFavorite(selectedBus.linha) : false;
+  }, [selectedBus?.linha, isBusFavorite]);
 
   function headingToCardinal(heading: number | null): string {
     if (heading == null || isNaN(heading)) return '';
@@ -191,8 +167,6 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
           },
         };
       });
-
-    console.log(`Converted ${validFeatures.length} valid traffic features from ${traffic.length} total`);
 
     return {
       type: 'FeatureCollection' as const,
@@ -311,25 +285,25 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
 
   // Obtem a velocidade do usuário
   React.useEffect(() => {
-  let subscription: Location.LocationSubscription | null = null;
-  (async () => {
-    let { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== 'granted') return;
+    let subscription: Location.LocationSubscription | null = null;
+    (async () => {
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') return;
 
-    subscription = await Location.watchPositionAsync(
-      { accuracy: Location.Accuracy.BestForNavigation, distanceInterval: 1, timeInterval: 1000 },
-      (location) => {
-        // location.coords.speed é em m/s
-        setUserSpeed(location.coords.speed != null ? location.coords.speed * 3.6 : 0); // km/h
-        setUserHeading(location.coords.heading ?? null);
-      }
-    );
-  })();
+      subscription = await Location.watchPositionAsync(
+        { accuracy: Location.Accuracy.BestForNavigation, distanceInterval: 1, timeInterval: 1000 },
+        (location) => {
+          // location.coords.speed é em m/s
+          setUserSpeed(location.coords.speed != null ? location.coords.speed * 3.6 : 0); // km/h
+          setUserHeading(location.coords.heading ?? null);
+        }
+      );
+    })();
 
-  return () => {
-    if (subscription) subscription.remove();
-  };
-}, []);
+    return () => {
+      if (subscription) subscription.remove();
+    };
+  }, []);
   
   return (
     <View style={[styles.container, style]}>
@@ -451,7 +425,7 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
 
         {/* Paradas de ônibus */}
         {currentZoom >= 14 && busStopMarker.map((busStop: BusStopMarker) => {
-          const isStopFavorite = favoriteStops.includes(busStop.id ?? '');
+          const isFavoriteStop = isStopFavorite(busStop.id);
           return (
             <PointAnnotation
               key={busStop.id}
@@ -489,7 +463,7 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
                     backgroundColor: '#fff',
                     borderRadius: 7,
                     padding: 0.5,
-                    opacity: isStopFavorite ? 1 : 0,
+                    opacity: isFavoriteStop ? 1 : 0,
                   }}
                 >
                   <MaterialIcons name="star" size={14} color="#FFD600" />
@@ -501,7 +475,7 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
 
         {/* Ônibus */}
         {currentZoom >= 13 && buses && buses.map((bus: BusMarker) => {
-          const isBusFavorite = favoriteBuses.includes(bus.linha ?? '');
+          const isFavoriteBus = isBusFavorite(bus.linha ?? '');
           return (
             <PointAnnotation
               key={bus.id}
@@ -544,7 +518,7 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
                     backgroundColor: '#fff',
                     borderRadius: 8,
                     padding: 0.5,
-                    opacity: isBusFavorite ? 1 : 0,
+                    opacity: isFavoriteBus ? 1 : 0,
                     overflow: 'visible',
                     elevation: 2,
                   }}
