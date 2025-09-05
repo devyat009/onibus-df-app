@@ -6,13 +6,13 @@ interface WazeJamRaw {
   id?: string;
   pubMillis: number;
   street?: string;
-  line?: ({x: number; y: number} | [number, number])[]; // Pode ser {x,y} ou [lon,lat]
+  line?: ({ x: number; y: number } | [number, number])[]; // Can be either {x,y} or [lon,lat]
   speedKMH?: number;
   speed?: number; // Fallback field
   level?: number;
-  blockDescription?: string; // Descricao do bloqueio
-  blockType?: string; // tipo de bloqueio
-  [key: string]: any; // Para outros campos que possam existir
+  blockDescription?: string; // Description of the block, if any
+  blockType?: string; // blockType can be 'ROAD_CLOSED_EVENT' or other types
+  [key: string]: any; // For any other fields that may exist
 }
 
 interface WazeApiResponse {
@@ -23,43 +23,43 @@ interface WazeApiResponse {
 class WazeTrafficService {
   private baseUrl = 'https://www.waze.com/live-map/api/georss';
   private cacheKey = 'WAZE_TRAFFIC';
-  private cacheTTL = 2 * 60 * 1000; // 2 minutos
+  private cacheTTL = 2 * 60 * 1000; // 2 minutes
 
   /**
    * Get traffic color based on level
    */
   private getTrafficColor(level: number): string {
-    if (level === 1) return '#00C851'; // Verde
-    if (level >= 2 && level <= 3) return '#FFB347'; // Amarelo claro
-    if (level >= 4 && level <= 5) return '#FF4444'; // Vermelho
-    return '#666666'; // Cinza para valores desconhecidos
+    if (level === 1) return '#00C851'; // Green
+    if (level >= 2 && level <= 3) return '#FFB347'; // Light Yellow
+    if (level >= 4 && level <= 5) return '#FF4444'; // Red
+    return '#666666'; // Gray for unknown values
   }
 
   /**
    * Transform raw Waze jam data to our TrafficJam interface
    */
   private transformWazeJam(jam: WazeJamRaw): TrafficJam | null {
-    // Usar uuid como ID primário, fallback para id ou gerar um baseado em outros campos
+    // Use uuid as primary ID, fallback to id or generate one based on other fields
     const id = jam.uuid || jam.id || `${jam.pubMillis}-${jam.street || 'unknown'}`;
-    
+
     if (!jam.line || !Array.isArray(jam.line)) {
-      return null; // Dados inválidos
+      return null; // Invalid data
     }
 
-    // Converter coordenadas de {x, y} para [longitude, latitude]
+    // Convert coordinates from {x, y} to [longitude, latitude]
     const convertedLines = jam.line.map((coord: any) => {
       if (coord && typeof coord.x === 'number' && typeof coord.y === 'number') {
         return [coord.x, coord.y]; // [longitude, latitude]
       }
-      // Se já estiver no formato [lon, lat]
-      if (Array.isArray(coord) && coord.length === 2 && 
-          typeof coord[0] === 'number' && typeof coord[1] === 'number') {
+      // If already in [lon, lat] format
+      if (Array.isArray(coord) && coord.length === 2 &&
+        typeof coord[0] === 'number' && typeof coord[1] === 'number') {
         return coord;
       }
       return null;
     }).filter(Boolean);
 
-    // Precisa de pelo menos 2 pontos para formar uma linha
+    // Needs at least 2 points to form a line
     if (convertedLines.length < 2) {
       console.warn(`Traffic jam ${id} has insufficient valid coordinates:`, jam.line);
       return null;
@@ -74,7 +74,7 @@ class WazeTrafficService {
       speedKMH: jam.speedKMH || 0,
       level: jam.level || 1,
       color: this.getTrafficColor(jam.level || 1),
-      pattern: isClosed ? 'yellow-black' : undefined, // pattern de linha
+      pattern: isClosed ? 'yellow-black' : undefined, // line pattern
       pubMillis: jam.pubMillis,
       blockDescription: jam.blockDescription || '',
       blockType: jam.blockType || ''
@@ -93,7 +93,7 @@ class WazeTrafficService {
       env: 'row',
       types: 'traffic'
     });
-    
+
     return `${this.baseUrl}?${params.toString()}`;
   }
 
@@ -103,7 +103,7 @@ class WazeTrafficService {
   private async fetchTrafficData(bounds: MapBounds): Promise<TrafficJam[]> {
     try {
       const url = this.buildWazeUrl(bounds);
-      
+
       const response = await fetch(url, {
         method: 'GET',
         headers: {
@@ -117,7 +117,7 @@ class WazeTrafficService {
       }
 
       const data: WazeApiResponse = await response.json();
-      
+
       if (!data.jams || !Array.isArray(data.jams)) {
         return [];
       }
@@ -139,7 +139,7 @@ class WazeTrafficService {
   async getTrafficJams(bounds: MapBounds): Promise<TrafficJam[]> {
     // Create cache key based on bounds to cache per region
     const boundsKey = `${this.cacheKey}_${bounds.north}_${bounds.south}_${bounds.east}_${bounds.west}`;
-    
+
     return getCachedOrFetch(
       boundsKey,
       () => this.fetchTrafficData(bounds),

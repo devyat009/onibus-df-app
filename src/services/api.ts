@@ -42,7 +42,7 @@ class ApiService {
   private async makeRequest<T>(endpoint: string, bounds?: MapBounds): Promise<ApiResponse<T>> {
     try {
       let url = `${this.baseUrl}?${endpoint}`;
-      
+
       if (bounds) {
         const minX = Math.min(bounds.west, bounds.east);
         const maxX = Math.max(bounds.west, bounds.east);
@@ -52,7 +52,7 @@ class ApiService {
         const bbox = `${minX},${minY},${maxX},${maxY},EPSG:4326`;
         url += `&bbox=${bbox}&srsName=EPSG:4326`;
       }
-      
+
       const response = await fetch(url, {
         headers: {
           'Accept': 'application/json',
@@ -124,25 +124,25 @@ class ApiService {
       const now = Date.now();
       const TWENTY_FOUR_HOURS = 9999999999 * 60 * 60 * 1000; // all time
       const TWO_HOURS = 2 * 60 * 60 * 1000; // 2 horas para captar mais ônibus
-      
+
       const timeLimit = filter === '24h' ? TWENTY_FOUR_HOURS : TWO_HOURS;
 
       const validBuses = buses.filter(bus => {
         if (!bus.datalocal && !bus.dataregistro) return false;
-        
+
         let busTime: number;
-        
+
         if (bus.dataregistro) {
           // dataregistro já está em formato ISO UTC
           busTime = new Date(bus.dataregistro).getTime();
         } else {
           // datalocal precisa ser convertido corretamente
-          const isoString = bus.datalocal.includes('T') 
-            ? bus.datalocal 
+          const isoString = bus.datalocal.includes('T')
+            ? bus.datalocal
             : bus.datalocal.replace(' ', 'T');
           busTime = new Date(isoString).getTime();
         }
-        
+
         if (isNaN(busTime)) return false;
         const timeDiff = now - busTime;
         return timeDiff >= 0 && timeDiff <= timeLimit;
@@ -150,7 +150,7 @@ class ApiService {
 
       return validBuses;
     }
-    
+
     const filteredBuses = filterActiveBusesRecent(allBuses, filterToUse);
     // console.log(`buses on last ${filterToUse}: `, filteredBuses.length);
     return filteredBuses;
@@ -164,7 +164,7 @@ class ApiService {
   async getEnhancedBuses(bounds?: MapBounds, timeFilter?: '30min' | '24h'): Promise<EnhancedBus[]> {
     // Use filter from store if not provided as parameter
     const filterToUse = timeFilter || useAppStore.getState().busTimeFilter;
-    
+
     // Get buses and frota data in parallel
     const [buses, frota] = await Promise.all([
       this.getBuses(bounds, filterToUse),
@@ -186,16 +186,16 @@ class ApiService {
 
     // Enhance buses with operator information
     const enhancedBuses = buses.map(bus => this.enhanceBusWithOperator(bus, frotaMap));
-    
+
     // Debug: contar por operadora
-    const operadoraCounts = new Map<string, number>();
-    enhancedBuses.forEach(bus => {
-      const operadora = bus.operadora?.nome || 'SEM_OPERADORA';
-      operadoraCounts.set(operadora, (operadoraCounts.get(operadora) || 0) + 1);
-    });
-    
+    // const operadoraCounts = new Map<string, number>();
+    // enhancedBuses.forEach(bus => {
+    //   const operadora = bus.operadora?.nome || 'SEM_OPERADORA';
+    //   operadoraCounts.set(operadora, (operadoraCounts.get(operadora) || 0) + 1);
+    // });
+
     // console.log('Onibus por operadora:', Object.fromEntries(operadoraCounts));
-    
+
     return enhancedBuses;
   }
 
@@ -204,21 +204,21 @@ class ApiService {
    */
   private enhanceBusWithOperator(bus: Bus, frotaMap: Map<string, FrotaOperadora>): EnhancedBus {
     const frotaInfo = frotaMap.get(bus.prefixo);
-    
+
     // Mapeamento das operadoras principais e suas cores
     const operadorasPrincipais: { [key: string]: { nome: string; cor: string } } = {
-      'URBI': { nome: 'URBI', cor: '#00bfffff' }, // Azul claro
-      'PIONEIRA': { nome: 'PIONEIRA', cor: '#ffff00' }, // Amarelo
-      'PIRACICABANA': { nome: 'PIRACICABANA', cor: '#006400' }, // Verde escuro
-      'MARECHAL': { nome: 'MARECHAL', cor: '#fb6900' }, // Laranja
-      'SÃO JOSÉ': { nome: 'SÃO JOSÉ', cor: '#938326' }, // #938326
-      'UNIÃO TRANSPORTE BRASÍLIA': { nome: 'UNIÃO TRANSPORTE BRASÍLIA', cor: '#00ffff' }, // Azul cyano
+      'URBI': { nome: 'URBI', cor: '#00bfffff' }, // Light blue
+      'PIONEIRA': { nome: 'PIONEIRA', cor: '#ffff00' }, // Yellow
+      'PIRACICABANA': { nome: 'PIRACICABANA', cor: '#006400' }, // Dark green
+      'MARECHAL': { nome: 'MARECHAL', cor: '#fb6900' }, // Orange
+      'SÃO JOSÉ': { nome: 'SÃO JOSÉ', cor: '#7af200' }, // #938326 before, now is #7af200 and is called BsBus
+      'UNIÃO TRANSPORTE BRASÍLIA': { nome: 'UNIÃO TRANSPORTE BRASÍLIA', cor: '#00ffff' }, // Blue cyano
     };
 
     let nomeOperadora = frotaInfo?.operadora || '';
     let corOperadora: string | undefined = undefined;
 
-    // Detecta e reduz o nome se for uma das principais
+    // Detect operadora by keywords in the name (ignoring case) and assign the corresponding color
     let found = false;
     for (const key in operadorasPrincipais) {
       if (nomeOperadora.toUpperCase().includes(key)) {
@@ -228,12 +228,12 @@ class ApiService {
         break;
       }
     }
-    // Se não encontrou, mantém nome completo e cor padrão
+    // If not found in main operators, assign a default color
     if (!found && nomeOperadora) {
       corOperadora = '#5a4799';
     }
-    
-    // Garante que sempre há uma cor, mesmo sem operadora
+
+    // Ensure there is always a color, even without an operator
     if (!corOperadora) {
       corOperadora = '#5a4799';
     }
@@ -242,11 +242,11 @@ class ApiService {
       ...bus,
       operadora: frotaInfo
         ? {
-            nome: nomeOperadora,
-            servico: frotaInfo.servico,
-            tipoOnibus: frotaInfo.tipoOnibus,
-            dataReferencia: frotaInfo.dataReferencia,
-          }
+          nome: nomeOperadora,
+          servico: frotaInfo.servico,
+          tipoOnibus: frotaInfo.tipoOnibus,
+          dataReferencia: frotaInfo.dataReferencia,
+        }
         : undefined,
       corOperadora,
     };
@@ -256,12 +256,12 @@ class ApiService {
 
   async getStops(bounds?: MapBounds): Promise<BusStop[]> {
     let endpoint = appConfig.api.endpoints.stops;
-    
+
     // Force EPSG:4326 output for stops
     if (!endpoint.includes('srsName=')) {
       endpoint += '&srsName=EPSG:4326';
     }
-    
+
     const response = await this.makeRequest<StopApiProperties>(
       endpoint,
       bounds
@@ -312,10 +312,10 @@ class ApiService {
 
   // Cached version of getStops - data persists for shorter time as stops change more frequently
   async getStopsCached(bounds?: MapBounds, options?: CacheOptions): Promise<BusStop[]> {
-    const cacheKey = bounds 
+    const cacheKey = bounds
       ? `${CACHE_KEYS.STOPS}_${bounds.north}_${bounds.south}_${bounds.east}_${bounds.west}`
       : CACHE_KEYS.STOPS;
-    
+
     return getCachedOrFetch(
       cacheKey,
       () => this.getStops(bounds),
@@ -343,32 +343,32 @@ class ApiService {
 
     // Check if any segment of the line is within tolerance distance of the stop
     const stopCoords = [stop.longitude, stop.latitude];
-    
+
     console.log(`Checking line ${line.codigo} with ${line.coordinates.length} coordinates against stop ${stop.codigo}`);
-    
+
     // Quick bounds check first to avoid expensive calculations
     const lineBounds = this.getLineBounds(line.coordinates);
     const stopBuffer = tolerance / 111320; // Convert meters to degrees (approximate)
-    
-    if (stopCoords[1] < lineBounds.minLat - stopBuffer || 
-        stopCoords[1] > lineBounds.maxLat + stopBuffer ||
-        stopCoords[0] < lineBounds.minLng - stopBuffer || 
-        stopCoords[0] > lineBounds.maxLng + stopBuffer) {
-      console.log(`Line ${line.codigo} is outside bounds for stop ${stop.codigo}`);
+
+    if (stopCoords[1] < lineBounds.minLat - stopBuffer ||
+      stopCoords[1] > lineBounds.maxLat + stopBuffer ||
+      stopCoords[0] < lineBounds.minLng - stopBuffer ||
+      stopCoords[0] > lineBounds.maxLng + stopBuffer) {
+      // console.log(`Line ${line.codigo} is outside bounds for stop ${stop.codigo}`);
       return false;
     }
-    
+
     // Check distance to each line segment
     for (let i = 0; i < line.coordinates.length - 1; i++) {
       const point1 = line.coordinates[i];
       const point2 = line.coordinates[i + 1];
-      
+
       // Skip invalid coordinates
       if (!point1 || !point2 || point1.length < 2 || point2.length < 2) {
         continue;
       }
-      
-      // Pré-filtro rápido: se ambos os pontos estão longe, nem calcula Haversine
+
+      // Fast pre-check: if both points are far away, skip Haversine calculation
       if (
         Math.abs(point1[0] - stopCoords[0]) > 0.05 && // ~5km
         Math.abs(point2[0] - stopCoords[0]) > 0.05 &&
@@ -383,7 +383,7 @@ class ApiService {
         return true;
       }
     }
-    
+
     return false;
   }
 
@@ -393,14 +393,14 @@ class ApiService {
   private getLineBounds(coordinates: [number, number][]): { minLat: number, maxLat: number, minLng: number, maxLng: number } {
     let minLat = Infinity, maxLat = -Infinity;
     let minLng = Infinity, maxLng = -Infinity;
-    
+
     coordinates.forEach(([lng, lat]) => {
       if (lat < minLat) minLat = lat;
       if (lat > maxLat) maxLat = lat;
       if (lng < minLng) minLng = lng;
       if (lng > maxLng) maxLng = lng;
     });
-    
+
     return { minLat, maxLat, minLng, maxLng };
   }
 
@@ -408,8 +408,8 @@ class ApiService {
    * Calculate distance from a point to a line segment using Haversine formula for geographic coordinates
    */
   private pointToLineDistance(point: number[], lineStart: number[], lineEnd: number[]): number {
-    if (!point || !lineStart || !lineEnd || 
-        point.length < 2 || lineStart.length < 2 || lineEnd.length < 2) {
+    if (!point || !lineStart || !lineEnd ||
+      point.length < 2 || lineStart.length < 2 || lineEnd.length < 2) {
       return Infinity;
     }
 
@@ -430,7 +430,7 @@ class ApiService {
 
     const dot = A * C + B * D;
     const lenSq = C * C + D * D;
-    
+
     if (lenSq === 0) {
       // Line segment is actually a point - calculate distance using Haversine
       return this.haversineDistance(y1, x1, py, px); // latitude, longitude
@@ -458,14 +458,14 @@ class ApiService {
     const R = 6371000; // Earth's radius in meters
     const dLat = ((lat2 - lat1) * Math.PI) / 180;
     const dLon = ((lon2 - lon1) * Math.PI) / 180;
-    
+
     const a =
       Math.sin(dLat / 2) * Math.sin(dLat / 2) +
       Math.cos((lat1 * Math.PI) / 180) *
       Math.cos((lat2 * Math.PI) / 180) *
       Math.sin(dLon / 2) *
       Math.sin(dLon / 2);
-    
+
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c;
   }
@@ -475,7 +475,7 @@ class ApiService {
    */
   async getStopSchedule(stop: BusStop): Promise<StopSchedule> {
     console.log(`Getting schedule for stop: ${stop.codigo} - ${stop.nome}`);
-    
+
     const [lines, horarios] = await Promise.all([
       this.getLinesCached(),
       this.getHorarioCached()
@@ -490,7 +490,7 @@ class ApiService {
     if (relevantLines.length === 0) {
       console.log('Strategy 2 failed, trying strategy 3: Proximity algorithm...');
       const tolerances = [100, 300, 500, 1000, 2000]; // Try increasing distances
-      
+
       for (const tolerance of tolerances) {
         console.log(`Trying proximity with ${tolerance}m tolerance...`);
         relevantLines = lines.filter(line => {
@@ -500,7 +500,7 @@ class ApiService {
           }
           return passesThrough;
         });
-        
+
         if (relevantLines.length > 0) {
           console.log(`Found ${relevantLines.length} lines with ${tolerance}m tolerance`);
           break;
@@ -512,12 +512,12 @@ class ApiService {
 
     // Group schedules by line
     const linesWithSchedules = relevantLines.map(line => {
-      const lineSchedules = horarios.filter(horario => 
+      const lineSchedules = horarios.filter(horario =>
         horario.cd_linha === line.codigo
       );
-      
+
       console.log(`Line ${line.codigo} has ${lineSchedules.length} schedules`);
-      
+
       return {
         line,
         schedules: lineSchedules.sort((a, b) => a.hr_prevista.localeCompare(b.hr_prevista))
@@ -584,13 +584,13 @@ class ApiService {
 
   private transformBusFromApi(feature: ApiResponse<BusApiProperties>['features'][0]): Bus | null {
     const { properties, geometry } = feature;
-    
+
     if (geometry.type !== 'Point' || !Array.isArray(geometry.coordinates)) {
       return null;
     }
 
     const [longitude, latitude] = geometry.coordinates as [number, number];
-    
+
     if (!properties.prefixo) {
       return null;
     }
@@ -612,7 +612,7 @@ class ApiService {
 
   private transformStopFromApi(feature: ApiResponse<StopApiProperties>['features'][0]): BusStop | null {
     const { properties, geometry } = feature;
-    
+
     if (geometry.type !== 'Point' || !Array.isArray(geometry.coordinates)) {
       return null;
     }
@@ -637,7 +637,7 @@ class ApiService {
       // Fallback: skip invalid
       return null;
     }
-    
+
     const codigo = properties.parada || properties.cd_parada || properties.codigo || properties.id || '';
     const nome = properties.descricao || properties.ds_ponto || properties.nm_parada || properties.nome || properties.ds_descricao || 'Parada de ônibus';
     const situacao = properties.situacao || 'ATIVA'; // Default to active if not specified
@@ -698,13 +698,13 @@ class ApiService {
 
   private transformLineFromApi(feature: ApiResponse<LineApiProperties>['features'][0]): BusLine | null {
     const { properties, geometry } = feature;
-    
+
     if (!['LineString', 'MultiLineString'].includes(geometry.type)) {
       return null;
     }
 
     const codigo = properties.cd_linha || properties.linha || properties.servico || properties.codigo || properties.cod_linha || '';
-    
+
     if (!codigo) {
       return null;
     }
@@ -717,7 +717,7 @@ class ApiService {
       coordinates = (geometry.coordinates as [number, number][][]).flat();
     }
 
-    // CONVERSÃO: Detecta UTM e converte para lat/lng
+    // Conversion: Detect UTM and convert to lat/lng
     coordinates = coordinates.map(([x, y]) => {
       const looksLikeUtm = x > 100000 && x < 400000 && y > 8_000_000 && y < 9_200_000;
       if (looksLikeUtm) {

@@ -23,7 +23,7 @@ export async function fetchWithCache(url: string, options?: RequestInit): Promis
         ...options,
         signal: controller.signal,
       });
-      
+
       clearTimeout(timeoutId);
 
       // Check content length to prevent OOM
@@ -75,7 +75,7 @@ export async function fetchWithCache(url: string, options?: RequestInit): Promis
       lastError = err as Error;
       const isTimeout = err instanceof Error && err.name === 'AbortError';
       const isOOM = err instanceof Error && err.message.includes('too large');
-      
+
       console.log(`Fetch attempt ${attempt}/${maxRetries} failed:`, {
         url: url.substring(0, 100) + '...',
         error: lastError.message,
@@ -85,9 +85,9 @@ export async function fetchWithCache(url: string, options?: RequestInit): Promis
 
       // If it's OOM or last attempt, return the error immediately
       if (isOOM || attempt === maxRetries) {
-        const text = isTimeout ? 'Request timeout after retries' : 
-                     isOOM ? 'Response too large, try with smaller dataset' :
-                     String(lastError?.message || lastError);
+        const text = isTimeout ? 'Request timeout after retries' :
+          isOOM ? 'Response too large, try with smaller dataset' :
+            String(lastError?.message || lastError);
         return { ok: false, status: isTimeout ? 408 : isOOM ? 413 : 0, text };
       }
 
@@ -97,10 +97,10 @@ export async function fetchWithCache(url: string, options?: RequestInit): Promis
   }
 
   // This should never be reached, but just in case
-  return { 
-    ok: false, 
-    status: 0, 
-    text: lastError?.message || 'Unknown error' 
+  return {
+    ok: false,
+    status: 0,
+    text: lastError?.message || 'Unknown error'
   };
 }
 

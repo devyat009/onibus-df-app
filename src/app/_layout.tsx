@@ -12,17 +12,16 @@ const RootLayout = () => {
   const [activeTab, setActiveTab] = useState('map');
   const { appTheme } = useAppStore();
 
-  // Cache stuff
+  // Pre-fetch essential data on mount and cache it
   useEffect(() => {
-    const fetchLines = async () => {
-      // pré-carrega lines, horario e frota (todos em paralelo)
+    const fetchData = async () => {
       await Promise.all([
         apiService.getLinesCached().catch(console.error),
         apiService.getHorarioCached().catch(console.error),
         apiService.getFrotaCached().catch(console.error),
       ]);
     };
-    fetchLines();
+    fetchData();
   }, []);
 
   const renderActiveScreen = () => {

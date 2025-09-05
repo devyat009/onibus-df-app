@@ -51,7 +51,7 @@ interface MapLibreBasicProps {
   zoom?: number;
   style?: object;
   theme?: 'light' | 'dark';
-  onRegionDidChange?: (bounds: {north: number, south: number, east: number, west: number}, center?: {latitude: number, longitude: number}, zoom?: number) => void;
+  onRegionDidChange?: (bounds: { north: number, south: number, east: number, west: number }, center?: { latitude: number, longitude: number }, zoom?: number) => void;
   onBusStopMarkerPress?: (busStopMarker: BusStopMarker) => void;
   busStopMarker?: BusStopMarker[];
   showTraffic?: boolean;
@@ -77,11 +77,11 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
   // loading bar
   isFetchingBuses = false, // blue loading bar
   fetchDuration = 8000,
-  // Paradas de onibus
+  // Bus stops
   busStopMarker = [],
   onBusStopMarkerPress,
 
-  // Onibus
+  // Buses
   onBusMarkerPress,
   buses = [],
 }) => {
@@ -90,26 +90,26 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
   const userLocation = useAppStore(state => state.userLocation);
   const [currentZoom, setCurrentZoom] = React.useState(zoom ?? 12);
   const [selectedBus, setSelectedBus] = useState<BusMarker | null>(null);
-  const [currentBounds, setCurrentBounds] = useState<{north: number, south: number, east: number, west: number} | null>(null);
+  const [currentBounds, setCurrentBounds] = useState<{ north: number, south: number, east: number, west: number } | null>(null);
   const fadeAnim = React.useRef(new Animated.Value(0)).current;
   const [isFetching, setIsFetching] = React.useState(false);
   const progressAnim = React.useRef(new Animated.Value(0)).current;
 
-  // Favoritos usando hook personalizado
+  // Favorites using custom hook
   const { isFavorite: isBusFavorite, toggleFavorite: toggleBusFavorite } = useBusFavorites();
   const { isFavorite: isStopFavorite } = useStopFavorites();
 
-  // Velocidade e direção do usuário
+  // User speed and direction
   const [userSpeed, setUserSpeed] = useState<number | null>(null);
   const [userHeading, setUserHeading] = useState<number | null>(null);
 
-  // Função para alternar favorito do ônibus selecionado
+  // Function to toggle favorite for selected bus
   const toggleFavorite = useCallback(() => {
     if (!selectedBus?.linha) return;
     toggleBusFavorite(selectedBus.linha);
   }, [selectedBus?.linha, toggleBusFavorite]);
 
-  // Verifica se o ônibus atual é favorito
+  // Verify if the current bus is a favorite
   const isFavorite = useMemo(() => {
     return selectedBus?.linha ? isBusFavorite(selectedBus.linha) : false;
   }, [selectedBus?.linha, isBusFavorite]);
@@ -120,14 +120,14 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
     return dirs[Math.round(((heading % 360) / 45))];
   }
 
-  // Hook para dados de trânsito
+  // Hook for traffic data
   const { traffic } = useTrafficData({
     enabled: showTraffic,
     bounds: currentBounds || undefined,
-    updateInterval: 2, // Atualiza a cada 2 minutos
+    updateInterval: 2, // Updates every 2 minutes
   });
 
-  // Converter dados de trânsito para GeoJSON
+  // Convert traffic data to GeoJSON
   const trafficGeoJSON = React.useMemo(() => {
     if (!traffic || traffic.length === 0) {
       return {
@@ -138,16 +138,16 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
 
     const validFeatures = traffic
       .filter((jam: TrafficJam) => {
-        // Verificar se tem coordenadas válidas
-        return jam.lines && 
-               Array.isArray(jam.lines) && 
-               jam.lines.length >= 2 &&
-               jam.lines.every(coord => 
-                 Array.isArray(coord) && 
-                 coord.length === 2 && 
-                 typeof coord[0] === 'number' && 
-                 typeof coord[1] === 'number'
-               );
+        // Verify if it has valid coordinates
+        return jam.lines &&
+          Array.isArray(jam.lines) &&
+          jam.lines.length >= 2 &&
+          jam.lines.every(coord =>
+            Array.isArray(coord) &&
+            coord.length === 2 &&
+            typeof coord[0] === 'number' &&
+            typeof coord[1] === 'number'
+          );
       })
       .map((jam: TrafficJam) => {
         const props: any = {
@@ -181,26 +181,26 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
     }
   }, [zoom]);
 
-  // Manipula a mudança de região
+  // Handle region change
   const handleRegionDidChange = async (event: any) => {
     if (onRegionDidChange && event && event.properties && event.properties.visibleBounds) {
       const [[west, south], [east, north]] = event.properties.visibleBounds;
-      // Extrai centro e zoom do evento
+      // Extract center and zoom from event
       const center = event.geometry?.coordinates
         ? { longitude: event.geometry.coordinates[0], latitude: event.geometry.coordinates[1] }
         : undefined;
       const zoomLevel = event.properties.zoomLevel;
-      setCurrentZoom(zoomLevel); // Atualiza o zoom local
-      
-      // Atualiza os bounds para o traffic
+      setCurrentZoom(zoomLevel); // Updates local zoom
+
+      // Update bounds for traffic
       const bounds = { north, south, east, west };
       setCurrentBounds(bounds);
-      
+
       onRegionDidChange(bounds, center, zoomLevel);
     }
   };
 
-  // Manipulao ao selecionar um onibus
+  // Handle bus selection
   const handleBusSelect = (bus: BusMarker) => {
     if (selectedBus?.id === bus.id) {
       // Fade out
@@ -216,8 +216,8 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
         duration: 300,
         useNativeDriver: true,
       }).start();
-      
-      // Auto fade-out após 5 segundos
+
+      // Auto fade-out after 5 seconds
       setTimeout(() => {
         Animated.timing(fadeAnim, {
           toValue: 0,
@@ -228,22 +228,22 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
     }
   };
 
-  // Manipula o dado de quando foi atualiado
+  // Handle data update timestamp
   const getAtualizadoTexto = (datalocal?: string, dataregistro?: string) => {
-    // Prioriza dataregistro (UTC) sobre datalocal (local time)
+    // Prioritize dataregistro (UTC) over datalocal (local time)
     const timestamp = dataregistro || datalocal;
     if (!timestamp) return '';
-    
+
     let dataBus: Date;
     if (dataregistro) {
-      // dataregistro já está em formato ISO UTC
+      // dataregistro already in ISO UTC
       dataBus = new Date(dataregistro);
     } else {
-      // datalocal está em horário local
+      // datalocal is in local time
       const isoString = datalocal!.replace(' ', 'T');
       dataBus = new Date(isoString);
     }
-    
+
     const agora = new Date();
     const diffMs = agora.getTime() - dataBus.getTime();
     const diffMin = Math.floor(diffMs / 60000);
@@ -293,7 +293,7 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
       subscription = await Location.watchPositionAsync(
         { accuracy: Location.Accuracy.BestForNavigation, distanceInterval: 1, timeInterval: 1000 },
         (location) => {
-          // location.coords.speed é em m/s
+          // location.coords.speed is in m/s
           setUserSpeed(location.coords.speed != null ? location.coords.speed * 3.6 : 0); // km/h
           setUserHeading(location.coords.heading ?? null);
         }
@@ -304,10 +304,10 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
       if (subscription) subscription.remove();
     };
   }, []);
-  
+
   return (
     <View style={[styles.container, style]}>
-      {/* Barrinha azul de busca */}
+      {/* Loading bar - blue for search */}
       {isFetching && (
         <Animated.View
           style={[
@@ -326,15 +326,15 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
         mapStyle={mapStyles[mapTheme] || mapStyles.light}
         onRegionDidChange={handleRegionDidChange}
       >
-        {/* Padrão de linha para bloqueios */}
+        {/* Line pattern of line to closed roads */}
         <Images images={{ 'yellow-black': yellowBlackStripes }} />
 
         {latitude !== undefined && longitude !== undefined && zoom !== undefined ? (
           <Camera
-              centerCoordinate={[longitude, latitude]}
-              zoomLevel={zoom}
-            />
-          ) : (
+            centerCoordinate={[longitude, latitude]}
+            zoomLevel={zoom}
+          />
+        ) : (
           <Camera />
         )}
         {/* <UserLocation
@@ -342,7 +342,7 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
           showsUserHeadingIndicator={true}
         /> */}
 
-        {/* Traffic Lines SEM pattern */}
+        {/* Traffic Lines WITHOUT pattern */}
         {showTraffic && trafficGeoJSON.features.length > 0 && (
           <ShapeSource
             id="traffic-source-normal"
@@ -371,7 +371,7 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
           </ShapeSource>
         )}
 
-        {/* Traffic Lines COM pattern */}
+        {/* Traffic Lines WITHOUT pattern */}
         {showTraffic && trafficGeoJSON.features.length > 0 && (
           <ShapeSource
             id="traffic-source-pattern"
@@ -400,7 +400,7 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
             />
           </ShapeSource>
         )}
-        
+
         {/* User location marker */}
         {userLocation && (
           <PointAnnotation
@@ -423,7 +423,7 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
           </PointAnnotation>
         )}
 
-        {/* Paradas de ônibus */}
+        {/* Bus stop markers */}
         {currentZoom >= 14 && busStopMarker.map((busStop: BusStopMarker) => {
           const isFavoriteStop = isStopFavorite(busStop.id);
           return (
@@ -435,13 +435,13 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
             >
               <View
                 collapsable={false}
-                style={{ 
+                style={{
                   position: 'relative',
                   width: 35,
                   height: 35,
                   alignItems: 'center',
                   justifyContent: 'center',
-              }}
+                }}
               >
                 <View
                   style={{
@@ -473,7 +473,7 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
           );
         })}
 
-        {/* Ônibus */}
+        {/* Bus markers */}
         {currentZoom >= 13 && buses && buses.map((bus: BusMarker) => {
           const isFavoriteBus = isBusFavorite(bus.linha ?? '');
           return (
@@ -530,7 +530,7 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
           );
         })}
       </MapView>
-      {/* Velocimetro */}
+      {/* Speedometer */}
       {typeof userSpeed === 'number' && (
         <View
           style={{
@@ -582,7 +582,7 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
                 km/h
               </Text>
             </View>
-            {/* Rosa dos ventos */}
+            {/* Compass */}
             <View
               style={{
                 width: 36,
@@ -624,10 +624,10 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
         </View>
       )}
 
-      {/* Popup customizado fora do mapa */}
+      {/* Custom popup outside the map */}
       {selectedBus && (
         <Animated.View style={[
-          styles.customPopup, 
+          styles.customPopup,
           { opacity: fadeAnim },
           { backgroundColor: appTheme === 'dark' ? '#333' : 'white' }
         ]}>
@@ -666,7 +666,7 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
                 styles.favoriteButton,
                 isFavorite
                   ? { backgroundColor: '#FFD600', borderColor: '#FFD600' }
-                  : { backgroundColor: 'transparent'}
+                  : { backgroundColor: 'transparent' }
               ]}
               activeOpacity={0.7}
             >

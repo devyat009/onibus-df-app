@@ -2,9 +2,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
 
 const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
-const FILESYSTEM_THRESHOLD = 100 * 1024; // 100KB - sugestão original para decidir usar FS
-const MAX_CACHE_FILE_SIZE = 40 * 1024 * 1024; // 40MB máximo para gravar/ler de uma vez
-const MAX_READ_FILE_SIZE = 45 * 1024 * 1024; // 45MB - se o arquivo for maior que isso, não tenta ler
+const FILESYSTEM_THRESHOLD = 100 * 1024; // 100KB - suggestion to original for deciding if to use FS
+const MAX_CACHE_FILE_SIZE = 40 * 1024 * 1024; // 40MB maximum for writing/reading at once
+const MAX_READ_FILE_SIZE = 45 * 1024 * 1024; // 45MB - if the file is larger than this, don't try to read
 
 export interface CacheOptions {
   ttl?: number; // Time to live in milliseconds
@@ -80,7 +80,7 @@ export async function setCacheData<T>(key: string, data: T): Promise<void> {
     // On error, try to clean FS flag to avoid future attempts to read a corrupted/huge file
     try {
       await AsyncStorage.removeItem(`${key}_fs`);
-    } catch {}
+    } catch { }
   }
 }
 
@@ -121,7 +121,7 @@ export async function getCacheData<T>(key: string): Promise<T | null> {
           try {
             await AsyncStorage.removeItem(`${key}_fs`);
             await AsyncStorage.removeItem(`${key}_timestamp`);
-          } catch {}
+          } catch { }
           return null;
         }
 
@@ -129,7 +129,7 @@ export async function getCacheData<T>(key: string): Promise<T | null> {
         // If reading failed (OOM or corruption), remove the file and flags to prevent repeated failures
         try {
           await FileSystem.deleteAsync(fileUri, { idempotent: true });
-        } catch (e) {}
+        } catch (e) { }
         await AsyncStorage.removeItem(`${key}_fs`);
         await AsyncStorage.removeItem(`${key}_timestamp`);
         return null;

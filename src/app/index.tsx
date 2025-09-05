@@ -33,9 +33,9 @@ export default function Index() {
   const [isFetchingBuses, setIsFetchingBuses] = useState(false); // blue loading bar
   const [intervalMs, setIntervalMs] = useState(8000);
   // Store
-  const { 
-    loading, 
-    style: mapTheme, 
+  const {
+    loading,
+    style: mapTheme,
     appTheme,
     showOnlyActiveBuses,
     showStops: showStopsStore,
@@ -62,30 +62,32 @@ export default function Index() {
   // Settings modal
   const [showSettings, setShowSettings] = useState(false);
 
-  // Estado para controlar o painel de paradas
+  // Bus stop panel controll
   const [panelOpen, setPanelOpen] = useState(false);
   const panelAnim = useState(new Animated.Value(0))[0]; // 0 = fechado, 1 = aberto
   const [selectedStopFromMap, setSelectedStopFromMap] = useState<BusStop | null>(null);
   const [selectedStopForDetail, setSelectedStopForDetail] = useState<BusStop | null>(null);
 
-    // Estado para altura do painel (0 = fechado, 1 = médio, 2 = máximo)
-  const [panelState, setPanelState] = useState(0); // 0: fechado, 1: médio, 2: máximo
+  // Bus stop panel state  (0 = closed, 1 = half-way open, 2 = open fully)
+  const [panelState, setPanelState] = useState(0); // 0: closed, 1: half-way open, 2: open fully
   //const panelAnim = useState(new Animated.Value(0))[0];
 
   const SCREEN_HEIGHT = Dimensions.get('window').height;
   const PANEL_MIN_HEIGHT = 60;
   const PANEL_MID_HEIGHT = 300;
   const PANEL_MAX_HEIGHT = SCREEN_HEIGHT;
+
   // Safe area insets 
   const insets = useSafeAreaInsets();
 
-   // Animação de abrir/fechar
+  // Animation to open/close
   const togglePanel = () => {
     const newPanelState = panelOpen ? 0 : 1;
     setPanelState(newPanelState);
     setPanelOpen(!panelOpen);
   };
-  // Atualiza altura do painel conforme estado
+
+  // Updates panel height according to state
   useEffect(() => {
     let toValue = 0;
     if (panelState === 1) toValue = 1;
@@ -93,34 +95,34 @@ export default function Index() {
     Animated.spring(panelAnim, {
       toValue,
       useNativeDriver: false,
-      friction: 10, // ajuste para suavidade
-      tension: 5, // ajuste para suavidade
+      friction: 10, // adjust for smoothness
+      tension: 5, // adjust for smoothness
     }).start();
   }, [panelState, panelAnim]);
 
-  // Altura do painel
+  // Panel height
   const panelHeight = panelAnim.interpolate({
     inputRange: [0, 1, 2],
     outputRange: [PANEL_MIN_HEIGHT, PANEL_MID_HEIGHT, PANEL_MAX_HEIGHT],
     extrapolate: 'clamp',
   });
 
-  // Espaço para empurrar o mapa para cima
+  // Space to push the map up
   const mapPaddingBottom = panelAnim.interpolate({
     inputRange: [0, 1, 2],
     outputRange: [0, PANEL_MID_HEIGHT, PANEL_MAX_HEIGHT],
     extrapolate: 'clamp',
   });
 
-  // PanResponder para arrastar o painel
+  // PanResponder for dragging the panel
   const panResponder = PanResponder.create({
     onMoveShouldSetPanResponder: (_, gestureState) => {
       return Math.abs(gestureState.dy) > 10;
     },
     onPanResponderMove: (_, gestureState) => {
-      // Atualiza altura do painel durante o arrasto
-      let newHeight = 
-        (panelState === 2 ? PANEL_MAX_HEIGHT : panelState === 1 ? PANEL_MID_HEIGHT : PANEL_MIN_HEIGHT) 
+      // Update panel height according to drag
+      let newHeight =
+        (panelState === 2 ? PANEL_MAX_HEIGHT : panelState === 1 ? PANEL_MID_HEIGHT : PANEL_MIN_HEIGHT)
         - gestureState.dy;
       if (newHeight < PANEL_MIN_HEIGHT) newHeight = PANEL_MIN_HEIGHT;
       if (newHeight > PANEL_MAX_HEIGHT) newHeight = PANEL_MAX_HEIGHT;
@@ -128,51 +130,51 @@ export default function Index() {
         newHeight < PANEL_MID_HEIGHT
           ? 0
           : newHeight < (PANEL_MAX_HEIGHT - 100)
-          ? 1
-          : 2
+            ? 1
+            : 2
       );
     },
     onPanResponderRelease: (_, gestureState) => {
-      // Decide para qual estado vai ao soltar
+      // Decide which state to go to on release
       if (panelState === 2 && gestureState.dy > 50) {
-        // Se estava no máximo e arrastou para baixo, volta para médio
+        // If it was at maximum and dragged down, go back to medium
         setPanelState(1);
         setPanelOpen(true);
       } else if (panelState === 1 && gestureState.dy > 50) {
-        // Se estava no médio e arrastou para baixo, fecha
+        // If it was at medium and dragged down, close it
         setPanelState(0);
         setPanelOpen(false);
       } else if (panelState === 1 && gestureState.dy < -50) {
-        // Se estava no médio e arrastou para cima, vai para máximo
+        // If it was at medium and dragged up, go to maximum
         setPanelState(2);
         setPanelOpen(true);
       } else if (panelState === 2 && gestureState.dy < -50) {
-        // Se já está no máximo e arrasta mais pra cima, mantém no máximo
+        // If it was at maximum and dragged up, stay at maximum
         setPanelState(2);
         setPanelOpen(true);
       } else if (panelState === 0 && gestureState.dy < -50) {
-        // Se fechado e arrasta pra cima, abre médio
+        // If it was closed and dragged up, go to medium
         setPanelState(1);
         setPanelOpen(true);
       } else {
-        // Mantém o estado atual
+        // Keep current state
         setPanelState(panelState);
         setPanelOpen(panelState !== 0);
       }
     },
   });
 
-  // Solicitar permissão ao montar e iniciar watch de localização
+  // Request permission on mount and start location watch
   useEffect(() => {
     let subscription: any = null;
-    
+
     const startLocationWatch = async () => {
       await requestPermission();
       subscription = await watchLocation();
     };
-    
+
     startLocationWatch();
-    
+
     return () => {
       if (subscription) {
         subscription.remove();
@@ -180,7 +182,7 @@ export default function Index() {
     };
   }, [requestPermission, watchLocation]);
 
-  // Centralizar no usuário ao iniciar
+  // Center on user at start
   useEffect(() => {
     if (userLocation && !initialized) {
       setMapCenter({
@@ -193,32 +195,32 @@ export default function Index() {
     }
   }, [userLocation, initialized]);
 
-  // BackHandler para Android - detecta quando painel está expandido ou modal está aberto
+  // BackHandler for Android - detects when panel is expanded or modal is open
   useEffect(() => {
     const backAction = () => {
-      // Se modal de configurações está aberto, fecha o modal
+      // If settings modal is open, close it
       if (showSettings) {
         setShowSettings(false);
         return true;
       }
-      
-      // Se modal de detalhes está aberto, fecha o modal
+
+      // If details modal is open, close it
       if (selectedStopForDetail) {
         setSelectedStopForDetail(null);
         return true;
       }
-      
+
       if (panelState === 2) {
-        // Se painel está maximizado, volta para o estado médio
+        // If it was at maximum, go back to medium
         setPanelState(1);
         return true;
       } else if (panelState === 1) {
-        // Se painel está no meio, fecha completamente
+        // If it was at medium, close it completely
         setPanelState(0);
         setPanelOpen(false);
         return true;
       }
-      // Se painel está fechado, deixa o comportamento padrão (fechar app)
+      // If panel is closed, let default behavior happen (close app)
       return false;
     };
 
@@ -226,7 +228,7 @@ export default function Index() {
     return () => backHandler.remove();
   }, [panelState, selectedStopForDetail, showSettings]);
 
-  // Centralizar no usuário
+  // Center on user at start
   const handleLocatePress = async () => {
     try {
       const permission = await requestPermission();
@@ -248,12 +250,12 @@ export default function Index() {
     }
   };
 
-  // Configuracoes
+  // Map settings menu
   const handleConfigPress = async () => {
     setShowSettings(true);
   }
-  
-  // Atualiza os bounds quando move o mapa
+
+  // Update bounds when moving the map
   const handleRegionDidChange = (
     bounds: { north: number; south: number; east: number; west: number; },
     center?: { latitude: number; longitude: number },
@@ -264,22 +266,21 @@ export default function Index() {
       setCameraMode('free');
     }
     if (zoom !== undefined) {
-      setUserMapZoom(zoom); // zoom do usuario ao mover no mapa
+      setUserMapZoom(zoom); // user's zoom level when moving the map
     }
   };
 
-  // Buscar paradas ao mudar os bounds
+  // Fetch stops when changing bounds
   useEffect(() => {
     if (!bounds) return;
     apiService.getStops(bounds)
       .then(setStops)
       .catch((error) => {
-        //Alert.alert('Erro', 'Não foi possível carregar as paradas.');
-        console.error('error ao buscar paradas', error);
+        console.error('Error fetching bus stops:', error);
       });
   }, [bounds]);
 
-  // Buscar os onibus
+  // Fetch buses periodically
   useEffect(() => {
     let timeout: ReturnType<typeof setTimeout>;
     let currentInterval = 8000;
@@ -311,11 +312,11 @@ export default function Index() {
           operadora: bus.operadora,
           corOperadora: bus.corOperadora,
         })));
-        currentInterval = 8000; // Reset tempo ao sucesso
+        currentInterval = 8000; // Reset time on success
       } catch (error) {
-        console.warn('Erro ao buscar ônibus', error);
-        currentInterval += 1000; // Aumenta 1s a cada falha
-        if (currentInterval > 30000) currentInterval = 30000; // Limite máximo de 30s (opcional)
+        console.warn('Error fetching buses:', error);
+        currentInterval += 1000; // Increase 1s on each failure
+        if (currentInterval > 30000) currentInterval = 30000; // Max limit of 30s (optional)
         // debug error
         // if(error instanceof ApiError) {
         //   console.error('ApiError:', error.message, error.details);
@@ -328,10 +329,10 @@ export default function Index() {
       setIsFetchingBuses(false);
       timeout = setTimeout(fetchBuses, currentInterval);
     };
-    
+
     return () => clearTimeout(timeout);
   }, [bounds, showOnlyActiveBuses]);
-  
+
   return (
     <SafeAreaView
       style={[
@@ -360,9 +361,9 @@ export default function Index() {
           { paddingBottom: mapPaddingBottom, marginBottom: 5 },
         ]}
       >
-        {/* Botões no topo direito */}
+        {/* Buttons of config and locate */}
         <View style={styles.topRightButtons}>
-          {/* Botão de configurações */}
+          {/* Config button */}
           <TouchableOpacity
             style={[
               styles.configButton,
@@ -376,7 +377,7 @@ export default function Index() {
               color={appTheme === "dark" ? "#999" : "#007AFF"}
             />
           </TouchableOpacity>
-          {/* Botão de localização */}
+          {/* Locate button */}
           <TouchableOpacity
             style={[
               styles.locateButton,
@@ -401,33 +402,33 @@ export default function Index() {
           longitude={cameraMode === "auto" ? mapCenter.longitude : undefined}
           zoom={cameraMode === "auto" ? mapCenter.zoom : undefined}
           style={{ flex: 1 }}
-          theme={mapTheme as "light" | "dark"} // Usar tema do mapa do store
+          theme={mapTheme as "light" | "dark"} // Use map theme from store
           isFetchingBuses={isFetchingBuses} // blue loading bar
           fetchDuration={intervalMs}
-          // Paradas de onibus
+          // Bus stops
           busStopMarker={
             showStopsStore
               ? stops.map((stop) => ({
-                  id: stop.id,
-                  latitude: stop.latitude,
-                  longitude: stop.longitude,
-                  title: stop.nome,
-                }))
+                id: stop.id,
+                latitude: stop.latitude,
+                longitude: stop.longitude,
+                title: stop.nome,
+              }))
               : []
           }
           onBusStopMarkerPress={(marker) => {
-            // Encontra a parada completa no array de paradas
+            // Find the full stop in the stops array
             const fullStop = stops.find(stop => stop.id === marker.id);
             if (fullStop) {
-              // Define a parada selecionada
+              // Set the selected stop
               setSelectedStopFromMap(fullStop);
               setSelectedStopForDetail(fullStop);
-              // Abre o painel se estiver fechado
+              // Open the panel if it's closed
               if (panelState === 0) {
                 setPanelState(2);
                 setPanelOpen(true);
               }
-              console.log('Parada clicada no mapa:', fullStop);
+              console.log('Bus stop clicked on map:', fullStop);
             } else {
               Alert.alert("Parada", marker.title || marker.id);
             }
@@ -436,7 +437,7 @@ export default function Index() {
           onRegionDidChange={handleRegionDidChange}
           // Traffic
           showTraffic={showTraffic}
-          // Onibus
+          // Buses
           buses={buses}
           onBusMarkerPress={(bus) => Alert.alert("Ônibus", bus.title || bus.id)}
         />
@@ -479,14 +480,14 @@ export default function Index() {
         </TouchableOpacity>
       )}
 
-      {/* Painel flutuante */}
+      {/* Floating bus stop panel */}
       {panelOpen && (
         <Animated.View
           style={[
             styles.floatingPanel,
             {
               height: panelHeight,
-              backgroundColor: appTheme === "dark" ? "#000" : "#fff", // Corrige cor do painel
+              backgroundColor: appTheme === "dark" ? "#000" : "#fff", // Fix panel color
               borderTopLeftRadius: 16,
               borderTopRightRadius: 16,
               borderBottomLeftRadius: 0,
@@ -496,7 +497,7 @@ export default function Index() {
           ]}
           {...panResponder.panHandlers}
         >
-          {/* Só mostra o handle se NÃO estiver em tela cheia */}
+          {/* Only show the handle if the panel is NOT at maximum */}
           {panelState !== 2 && (
             <TouchableOpacity
               style={[
@@ -520,9 +521,6 @@ export default function Index() {
                 backgroundColor: appTheme === "dark" ? "#000" : "#fff",
               }}
             >
-              {/* <Text style={{ color: appTheme === 'dark' ? '#fff' : '#333' }}>
-                Conteúdo do painel aqui!
-              </Text> */}
               <StopsPainelMenu
                 stops={userMapZoom >= 15.4 ? stops : []}
                 selectedStopFromMap={selectedStopFromMap}
@@ -533,7 +531,7 @@ export default function Index() {
         </Animated.View>
       )}
 
-      {/* Modal de Configurações */}
+      {/* Floating map settings modal */}
       <Modal
         visible={showSettings}
         transparent={true}
@@ -644,7 +642,7 @@ export default function Index() {
         </View>
       </Modal>
 
-      {/* Modal de Detalhe da Parada */}
+      {/* Floating bus stop detail modal */}
       <Modal
         visible={selectedStopForDetail !== null}
         transparent={false}
@@ -683,7 +681,7 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 8,
   },
-  // Botoes config e local
+  // buttons config e local
   topRightButtons: {
     height: 125,
     position: 'absolute',
@@ -694,7 +692,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     flexDirection: 'column',
   },
-  // Botão de localização
+  // Button localize
   locateButton: {
     //position: 'absolute',
     //bottom: 24,
@@ -711,7 +709,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     marginTop: 10,
   },
-  // Botão de configurações e modal
+  // Button config and modal
   configButton: {
     //position: 'absolute',
     //bottom: 84,
@@ -768,7 +766,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
 
-  // Animação do painel flutuante
+  // Animation of floating bus stop panel
   floatingPanel: {
     position: 'absolute',
     left: 0,

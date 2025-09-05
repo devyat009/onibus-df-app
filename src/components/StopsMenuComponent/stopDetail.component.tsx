@@ -24,13 +24,13 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Favoritos usando hook personalizado
+  // Favorites using custom hook
   const { isFavorite, toggleFavorite } = useStopFavorites();
 
-  // Verifica se a parada atual é favorita
+  // Check if the current stop is a favorite
   const isCurrentStopFavorite = stop?.id ? isFavorite(stop.id) : false;
 
-  // Função para alternar favorito da parada atual
+  // Function to toggle favorite for the current stop
   const handleToggleFavorite = () => {
     if (stop?.id) {
       toggleFavorite(stop.id);
@@ -56,7 +56,7 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
       try {
         setLoading(true);
         setError(null);
-        
+
         const data = await apiService.getStopSchedule(stop);
         setScheduleData(data);
       } catch (err) {
@@ -66,7 +66,7 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
         setLoading(false);
       }
     };
-    
+
     loadData();
   }, [stop]);
 
@@ -77,8 +77,8 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
   const getCurrentDaySchedules = (schedules: any[]) => {
     const now = new Date();
     const currentDayIndex = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
-    
-    return schedules.filter(schedule => 
+
+    return schedules.filter(schedule =>
       schedule.dias_semana[currentDayIndex] === 'S'
     );
   };
@@ -86,7 +86,7 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
   const getNextSchedules = (schedules: any[], limit = 5) => {
     const now = new Date();
     const currentTime = now.getHours() * 60 + now.getMinutes();
-    
+
     const todaySchedules = getCurrentDaySchedules(schedules)
       .map(schedule => {
         const [hours, minutes] = schedule.hr_prevista.split(':').map(Number);
@@ -104,10 +104,10 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
       <View style={[styles.container, { backgroundColor: appTheme === 'dark' ? '#000' : '#fff' }]}>
         <View style={styles.header}>
           <TouchableOpacity onPress={onBack} style={styles.backButton}>
-            <MaterialIcons 
-              name="arrow-back" 
-              size={24} 
-              color={appTheme === 'dark' ? '#fff' : '#000'} 
+            <MaterialIcons
+              name="arrow-back"
+              size={24}
+              color={appTheme === 'dark' ? '#fff' : '#000'}
             />
           </TouchableOpacity>
           <View style={styles.headerInfo}>
@@ -124,7 +124,7 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
               styles.favoriteButton,
               isCurrentStopFavorite
                 ? { backgroundColor: '#FFD600', borderColor: '#FFD600' }
-                : { backgroundColor: 'transparent', borderColor: '#007AFF', borderWidth: 2}
+                : { backgroundColor: 'transparent', borderColor: '#007AFF', borderWidth: 2 }
             ]}
             activeOpacity={0.7}
           >
@@ -150,10 +150,10 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
       <View style={[styles.container, { backgroundColor: appTheme === 'dark' ? '#000' : '#fff' }]}>
         <View style={styles.header}>
           <TouchableOpacity onPress={onBack} style={styles.backButton}>
-            <MaterialIcons 
-              name="arrow-back" 
-              size={24} 
-              color={appTheme === 'dark' ? '#fff' : '#000'} 
+            <MaterialIcons
+              name="arrow-back"
+              size={24}
+              color={appTheme === 'dark' ? '#fff' : '#000'}
             />
           </TouchableOpacity>
           <View style={styles.headerInfo}>
@@ -170,7 +170,7 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
               styles.favoriteButton,
               isCurrentStopFavorite
                 ? { backgroundColor: '#FFD600', borderColor: '#FFD600' }
-                : { backgroundColor: 'transparent', borderColor: '#007AFF', borderWidth: 2}
+                : { backgroundColor: 'transparent', borderColor: '#007AFF', borderWidth: 2 }
             ]}
             activeOpacity={0.7}
           >
@@ -198,10 +198,10 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
     <View style={[styles.container, { backgroundColor: appTheme === 'dark' ? '#000' : '#fff' }]}>
       <View style={styles.header}>
         <TouchableOpacity onPress={onBack} style={styles.backButton}>
-          <MaterialIcons 
-            name="arrow-back" 
-            size={24} 
-            color={appTheme === 'dark' ? '#fff' : '#000'} 
+          <MaterialIcons
+            name="arrow-back"
+            size={24}
+            color={appTheme === 'dark' ? '#fff' : '#000'}
           />
         </TouchableOpacity>
         <View style={styles.headerInfo}>
@@ -218,7 +218,7 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
             styles.favoriteButton,
             isCurrentStopFavorite
               ? { backgroundColor: '#FFD600', borderColor: '#FFD600' }
-              : { backgroundColor: 'transparent', borderColor: '#007AFF', borderWidth: 2}
+              : { backgroundColor: 'transparent', borderColor: '#007AFF', borderWidth: 2 }
           ]}
           activeOpacity={0.7}
         >
@@ -236,11 +236,11 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
             const quantidadeHorarios = 1;
             const nextSchedules = getNextSchedules(lineData.schedules, quantidadeHorarios);
             return (
-              <View 
-                key={index} 
+              <View
+                key={index}
                 style={[
-                  styles.lineCard, 
-                  { 
+                  styles.lineCard,
+                  {
                     backgroundColor: appTheme === 'dark' ? '#181818' : '#f9f9f9',
                     borderColor: appTheme === 'dark' ? '#333' : '#eee'
                   }
@@ -256,7 +256,7 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
                   <View style={styles.schedulesContainer}>
                     {nextSchedules.length > 0 ? (
                       nextSchedules.map((schedule, scheduleIndex) => {
-                        // Calcula minutos até o próximo horário
+                        // Calculate time difference
                         const now = new Date();
                         const [h, m] = schedule.hr_prevista.split(':').map(Number);
                         const scheduleDate = new Date(now);
@@ -305,13 +305,13 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
           <View style={styles.centerContent}>
             <MaterialIcons name="info" size={48} color="#007AFF" />
             <Text style={[styles.noDataText, { color: appTheme === 'dark' ? '#aaa' : '#666' }]}>
-              {scheduleData ? 
+              {scheduleData ?
                 `Nenhuma linha encontrada para a parada ${stop.codigo}` :
                 'Carregando dados de horários...'
               }
             </Text>
             <Text style={[styles.noDataSubtext, { color: appTheme === 'dark' ? '#777' : '#999' }]}>
-              {scheduleData ? 
+              {scheduleData ?
                 'Pode ser que esta parada não tenha linhas ativas ou os dados de proximidade precisem ser ajustados.' :
                 'Aguarde enquanto verificamos as linhas e horários...'
               }
@@ -465,12 +465,12 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   scheduleRow: {
-  flexDirection: 'row',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  paddingVertical: 10,
-  borderBottomWidth: 1,
-  borderBottomColor: '#eee',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
   },
   lineInfoLeft: {
     flex: 1,

@@ -13,7 +13,7 @@ export async function getCachedOrFetch<T>(
   options: CacheOptions = {}
 ): Promise<T> {
   const { ttl = THREE_DAYS_MS, forceRefresh = false } = options;
-  
+
   if (forceRefresh) {
     const data = await fetcher();
     await setCacheData(key, data);
@@ -74,7 +74,7 @@ export async function isCacheValid(key: string, ttl: number = THREE_DAYS_MS): Pr
   try {
     const timestamp = await AsyncStorage.getItem(`${key}_timestamp`);
     if (!timestamp) return false;
-    
+
     const now = Date.now();
     return now - Number(timestamp) < ttl;
   } catch (error) {

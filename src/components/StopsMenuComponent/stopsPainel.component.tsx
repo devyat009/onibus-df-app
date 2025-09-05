@@ -5,13 +5,13 @@ import { CACHE_KEYS, getCacheData } from "@/src/utils/cacheManager";
 import { MaterialIcons } from "@expo/vector-icons";
 import React, { useEffect } from "react";
 import {
-    Modal,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Modal,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import StopDetail from "./stopDetail.component";
 
@@ -33,7 +33,7 @@ const StopsPainelMenu: React.FC<StopsPainelMenuBasicProps> = ({
   const [busLines, setBusLines] = React.useState<any[]>([]);
   const [busHorarios, setBusHorarios] = React.useState<any[]>([]);
 
-  // tab state
+  // Tab state
   const isNearbyActive = activeTab === "nearby";
   const isFavoritesActive = activeTab === "favorites";
 
@@ -51,7 +51,7 @@ const StopsPainelMenu: React.FC<StopsPainelMenuBasicProps> = ({
     fetchHorariosFromCache();
   }, []);
 
-  // Favoritos usando hook personalizado
+  // Favorites using custom hook
   const { favorites: favoriteStops } = useStopFavorites();
 
   useEffect(() => {
@@ -80,9 +80,6 @@ const StopsPainelMenu: React.FC<StopsPainelMenuBasicProps> = ({
   // Effect to handle stop selected from map
   useEffect(() => {
     if (selectedStopFromMap) {
-      // Se a parada vem do mapa, não define selectedStop aqui
-      // O detalhe será mostrado no modal principal
-      console.log('Parada selecionada do mapa (será mostrada no modal):', selectedStopFromMap);
       if (onStopSelected) {
         onStopSelected();
       }
@@ -101,7 +98,7 @@ const StopsPainelMenu: React.FC<StopsPainelMenuBasicProps> = ({
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {filteredStops.length > 0 ? (
           filteredStops.map((stop) => {
-            // Bus lines for this stop (ajuste conforme sua estrutura)
+            // Bus lines for this stop
             const stopLines = busLines
               .filter((line) => line.paradas?.includes(stop.codigo))
               .map((line) => line.linha)
@@ -167,7 +164,7 @@ const StopsPainelMenu: React.FC<StopsPainelMenuBasicProps> = ({
   if (selectedStop && !selectedStopFromMap) {
     return (
       <>
-        {/* Renderiza a lista de paradas por baixo */}
+        {/* Render the list of stops below */}
         <SafeAreaView
           style={[
             styles.container,
@@ -284,7 +281,7 @@ const styles = StyleSheet.create({
     // borderTopRightRadius: 12,
     overflow: "hidden",
     //marginTop: 25,
-    minHeight: 48, // garante altura mínima
+    minHeight: 48, // guarantees minimum height
     width: "100%",
   },
   tab: {
@@ -295,7 +292,7 @@ const styles = StyleSheet.create({
   },
   tabActive: {
     borderBottomWidth: 3,
-    borderBottomColor: "#007AFF", // cor da barra ativa
+    borderBottomColor: "#007AFF", // active tab color
   },
   tabText: {
     fontWeight: "bold",

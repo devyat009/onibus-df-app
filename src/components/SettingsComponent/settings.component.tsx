@@ -7,7 +7,7 @@ const SettingsOptions = () => {
   const [mapExpanded, setMapExpanded] = useState(false);
   const [appExpanded, setAppExpanded] = useState(false);
   const [busFilterExpanded, setBusFilterExpanded] = useState(false);
-  
+
   const mapTheme = useAppStore(state => state.style); // Map theme
   const appTheme = useAppStore(state => state.appTheme); // App theme
   const busTimeFilter = useAppStore(state => state.busTimeFilter); // Bus filter
@@ -44,10 +44,10 @@ const SettingsOptions = () => {
 
   return (
     <View>
-      {/* Tema do Aplicativo */}
-      <TouchableOpacity onPress={toggleAppExpand} style={[styles.option, { 
+      {/* App theme */}
+      <TouchableOpacity onPress={toggleAppExpand} style={[styles.option, {
         borderBottomColor: appTheme === 'dark' ? '#333' : '#eee',
-        backgroundColor: appTheme === 'dark' ? '#000' : '#fff' 
+        backgroundColor: appTheme === 'dark' ? '#000' : '#fff'
       }]}>
         <Text style={[styles.optionText, { color: appTheme === 'dark' ? '#fff' : '#333' }]}>Tema do Aplicativo</Text>
         <Ionicons
@@ -60,7 +60,7 @@ const SettingsOptions = () => {
         <View style={[styles.expandedContent, { backgroundColor: appTheme === 'dark' ? '#111' : '#f9f9f9' }]}>
           <TouchableOpacity
             style={[
-              styles.themeToggle, 
+              styles.themeToggle,
               appTheme === 'light' && {
                 backgroundColor: '#e3f2fd',
                 borderRadius: 8
@@ -77,7 +77,7 @@ const SettingsOptions = () => {
           </TouchableOpacity>
           <TouchableOpacity
             style={[
-              styles.themeToggle, 
+              styles.themeToggle,
               appTheme === 'dark' && {
                 backgroundColor: '#555',
                 borderRadius: 8
@@ -95,10 +95,10 @@ const SettingsOptions = () => {
         </View>
       )}
 
-      {/* Tema do Mapa */}
-      <TouchableOpacity onPress={toggleMapExpand} style={[styles.option, { 
+      {/* Map theme */}
+      <TouchableOpacity onPress={toggleMapExpand} style={[styles.option, {
         borderBottomColor: appTheme === 'dark' ? '#333' : '#eee',
-        backgroundColor: appTheme === 'dark' ? '#000' : '#fff' 
+        backgroundColor: appTheme === 'dark' ? '#000' : '#fff'
       }]}>
         <Text style={[styles.optionText, { color: appTheme === 'dark' ? '#fff' : '#333' }]}>Tema do Mapa</Text>
         <Ionicons
@@ -111,7 +111,7 @@ const SettingsOptions = () => {
         <View style={[styles.expandedContent, { backgroundColor: appTheme === 'dark' ? '#111' : '#f9f9f9' }]}>
           <TouchableOpacity
             style={[
-              styles.themeToggle, 
+              styles.themeToggle,
               mapTheme === 'light' && {
                 backgroundColor: appTheme === 'dark' ? '#555' : '#e3f2fd',
                 borderRadius: 8
@@ -128,7 +128,7 @@ const SettingsOptions = () => {
           </TouchableOpacity>
           <TouchableOpacity
             style={[
-              styles.themeToggle, 
+              styles.themeToggle,
               mapTheme === 'dark' && {
                 backgroundColor: appTheme === 'dark' ? '#555' : '#e3f2fd',
                 borderRadius: 8
@@ -146,10 +146,10 @@ const SettingsOptions = () => {
         </View>
       )}
 
-      {/* Filtro de Ônibus */}
-      <TouchableOpacity onPress={toggleBusFilterExpand} style={[styles.option, { 
+      {/* Bus Filter */}
+      <TouchableOpacity onPress={toggleBusFilterExpand} style={[styles.option, {
         borderBottomColor: appTheme === 'dark' ? '#333' : '#eee',
-        backgroundColor: appTheme === 'dark' ? '#000' : '#fff' 
+        backgroundColor: appTheme === 'dark' ? '#000' : '#fff'
       }]}>
         <Text style={[styles.optionText, { color: appTheme === 'dark' ? '#fff' : '#333' }]}>Filtro de Ônibus</Text>
         <Ionicons
@@ -162,7 +162,7 @@ const SettingsOptions = () => {
         <View style={[styles.expandedContent, { backgroundColor: appTheme === 'dark' ? '#111' : '#f9f9f9' }]}>
           <TouchableOpacity
             style={[
-              styles.themeToggle, 
+              styles.themeToggle,
               busTimeFilter === '30min' && {
                 backgroundColor: appTheme === 'dark' ? '#555' : '#e3f2fd',
                 borderRadius: 8
@@ -179,7 +179,7 @@ const SettingsOptions = () => {
           </TouchableOpacity>
           <TouchableOpacity
             style={[
-              styles.themeToggle, 
+              styles.themeToggle,
               busTimeFilter === '24h' && {
                 backgroundColor: appTheme === 'dark' ? '#555' : '#e3f2fd',
                 borderRadius: 8

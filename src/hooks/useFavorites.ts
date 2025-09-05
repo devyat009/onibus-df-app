@@ -20,10 +20,10 @@ export const useFavorites = (cacheKey: string): UseFavoritesResult => {
   const isBusCache = cacheKey === CACHE_KEYS.FAVORITES_BUSES;
   const currentFavorites = isBusCache ? favoritesState.buses : favoritesState.stops;
   const currentListeners = isBusCache ? favoritesState.busListeners : favoritesState.stopListeners;
-  
+
   const [favorites, setFavoritesLocal] = useState<string[]>(currentFavorites);
 
-  // Sincronizar com estado global
+  // Sync local state with global state
   useEffect(() => {
     const updateLocal = (newFavorites: string[]) => {
       setFavoritesLocal(newFavorites);
@@ -37,7 +37,7 @@ export const useFavorites = (cacheKey: string): UseFavoritesResult => {
     };
   }, [currentListeners, currentFavorites]);
 
-  // Carregar favoritos do cache na primeira execução
+  // Load favorites from cache on first run
   useEffect(() => {
     const loadFavorites = async () => {
       try {
@@ -48,8 +48,8 @@ export const useFavorites = (cacheKey: string): UseFavoritesResult => {
           } else {
             favoritesState.stops = data;
           }
-          
-          // Notificar todos os listeners
+
+          // Notify all listeners
           currentListeners.forEach(listener => listener(data));
         }
       } catch (error) {
@@ -67,12 +67,12 @@ export const useFavorites = (cacheKey: string): UseFavoritesResult => {
       favoritesState.stops = newFavorites;
     }
 
-    // Salvar no cache
+    // Save to cache
     setCacheData(cacheKey, newFavorites).catch(error => {
       console.error('Erro ao salvar favoritos:', error);
     });
 
-    // Notificar todos os listeners
+    // Notify all listeners
     currentListeners.forEach(listener => listener(newFavorites));
   }, [cacheKey, isBusCache, currentListeners]);
 
@@ -82,10 +82,10 @@ export const useFavorites = (cacheKey: string): UseFavoritesResult => {
 
   const toggleFavorite = useCallback((id: string) => {
     const currentFavs = isBusCache ? favoritesState.buses : favoritesState.stops;
-    const newFavorites = currentFavs.includes(id) 
+    const newFavorites = currentFavs.includes(id)
       ? currentFavs.filter(fav => fav !== id)
       : [...currentFavs, id];
-    
+
     setFavorites(newFavorites);
   }, [isBusCache, setFavorites]);
 
@@ -97,12 +97,12 @@ export const useFavorites = (cacheKey: string): UseFavoritesResult => {
   };
 };
 
-// Hook específico para favoritos de ônibus
+// Hook especific for favorites buses
 export const useBusFavorites = () => {
   return useFavorites(CACHE_KEYS.FAVORITES_BUSES);
 };
 
-// Hook específico para favoritos de paradas
+// Hook especific for favorites bus stops
 export const useStopFavorites = () => {
   return useFavorites(CACHE_KEYS.FAVORITES_STOPS);
 };
