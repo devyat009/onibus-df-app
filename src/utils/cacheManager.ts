@@ -68,11 +68,14 @@ export async function setCacheData<T>(key: string, data: T): Promise<void> {
     if (useFS) {
       const fileUri = getFileUri(key);
       await FileSystem.writeAsStringAsync(fileUri, str);
+      // Persist the size copy to avoid having to open huge files with undefined size
+      await AsyncStorage.setItem(`${key}_fs_size`, String(str.length));
       await AsyncStorage.setItem(`${key}_fs`, '1');
       await AsyncStorage.removeItem(key); // ensure AsyncStorage copy not stale
     } else {
       await AsyncStorage.setItem(key, str);
       await AsyncStorage.removeItem(`${key}_fs`);
+      await AsyncStorage.removeItem(`${key}_fs_size`);
     }
     await AsyncStorage.setItem(`${key}_timestamp`, String(Date.now()));
   } catch (error) {
@@ -80,7 +83,8 @@ export async function setCacheData<T>(key: string, data: T): Promise<void> {
     // On error, try to clean FS flag to avoid future attempts to read a corrupted/huge file
     try {
       await AsyncStorage.removeItem(`${key}_fs`);
-    } catch { }
+      await AsyncStorage.removeItem(`${key}_fs_size`);
+    } catch {}
   }
 }
 
@@ -89,10 +93,25 @@ export async function getCacheData<T>(key: string): Promise<T | null> {
     const useFS = await AsyncStorage.getItem(`${key}_fs`);
     if (useFS === '1') {
       const fileUri = getFileUri(key);
+      // First, check the saved size in metadata to avoid opening huge files
+      // If size is missing or too large, remove the file and return null
+      // This avoids OOM crashes on devices with limited memory
+      const savedSizeStr = await AsyncStorage.getItem(`${key}_fs_size`);
+      const savedSize = savedSizeStr ? Number(savedSizeStr) : undefined;
+      if (typeof savedSize === 'number' && savedSize > MAX_READ_FILE_SIZE) {
+        console.warn(`Cached file ${key} (metadata) too large (${Math.round(savedSize / 1024)} KB). Removing file.`);
+        try { await FileSystem.deleteAsync(fileUri, { idempotent: true }); } catch {}
+        await AsyncStorage.removeItem(`${key}_fs`);
+        await AsyncStorage.removeItem(`${key}_fs_size`);
+        await AsyncStorage.removeItem(`${key}_timestamp`);
+        return null;
+      }
+
       const fileInfo = await FileSystem.getInfoAsync(fileUri);
       if (!fileInfo.exists) {
         // cleanup inconsistent flags
         await AsyncStorage.removeItem(`${key}_fs`);
+        await AsyncStorage.removeItem(`${key}_fs_size`);
         await AsyncStorage.removeItem(`${key}_timestamp`);
         return null;
       }
@@ -106,6 +125,17 @@ export async function getCacheData<T>(key: string): Promise<T | null> {
           console.error('Failed to delete large cache file:', err);
         }
         await AsyncStorage.removeItem(`${key}_fs`);
+        await AsyncStorage.removeItem(`${key}_fs_size`);
+        await AsyncStorage.removeItem(`${key}_timestamp`);
+        return null;
+      }
+
+      // if dont have size in metadata nor in fileInfo, safer to skip reading (avoid OOM)
+      if (typeof fileInfo.size !== 'number' && typeof savedSize !== 'number') {
+        console.warn(`Cached file ${key} has unknown size. Skipping read and removing file to avoid OOM.`);
+        try { await FileSystem.deleteAsync(fileUri, { idempotent: true }); } catch {}
+        await AsyncStorage.removeItem(`${key}_fs`);
+        await AsyncStorage.removeItem(`${key}_fs_size`);
         await AsyncStorage.removeItem(`${key}_timestamp`);
         return null;
       }
@@ -114,10 +144,10 @@ export async function getCacheData<T>(key: string): Promise<T | null> {
         const content = await FileSystem.readAsStringAsync(fileUri);
         return JSON.parse(content);
       } catch (err: any) {
-        // Trata casos comuns de "file not found" / ENOENT sem poluir os logs
+        // treat common "file not found" / ENOENT cases without polluting logs
         const msg = String(err?.message || err);
         if (msg.includes('FileNotFoundException') || msg.includes('ENOENT') || msg.includes('open failed')) {
-          // arquivo pode ter sido removido entre getInfoAsync e read; limpa flags e segue
+          // file can be deleted between getInfoAsync and read; clean flags and continue
           try {
             await AsyncStorage.removeItem(`${key}_fs`);
             await AsyncStorage.removeItem(`${key}_timestamp`);
@@ -131,6 +161,7 @@ export async function getCacheData<T>(key: string): Promise<T | null> {
           await FileSystem.deleteAsync(fileUri, { idempotent: true });
         } catch (e) { }
         await AsyncStorage.removeItem(`${key}_fs`);
+        await AsyncStorage.removeItem(`${key}_fs_size`);
         await AsyncStorage.removeItem(`${key}_timestamp`);
         return null;
       }
@@ -149,6 +180,7 @@ export async function clearCache(key?: string): Promise<void> {
     if (key) {
       await AsyncStorage.removeItem(key);
       await AsyncStorage.removeItem(`${key}_timestamp`);
+      await AsyncStorage.removeItem(`${key}_fs_size`);
       const useFS = await AsyncStorage.getItem(`${key}_fs`);
       if (useFS === '1') {
         const fileUri = getFileUri(key);
@@ -175,10 +207,10 @@ export async function clearCache(key?: string): Promise<void> {
 
 export async function clearAllCache(): Promise<void> {
   try {
-    // Limpa AsyncStorage
+    // Clean AsyncStorage
     await AsyncStorage.clear();
 
-    // Limpa todos arquivos de cache do FileSystem
+    // Clean all cache files from the FileSystem
     const dir = FileSystem.documentDirectory;
     if (dir) {
       const files = await FileSystem.readDirectoryAsync(dir);
