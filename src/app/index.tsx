@@ -343,7 +343,7 @@ export default function Index() {
       <View
         style={[
           styles.header,
-          { backgroundColor: appTheme === "dark" ? "#000" : "#fff" },
+          { backgroundColor: appTheme === "dark" ? "#000" : "#fff", borderBottomColor: appTheme === "dark" ? "#333" : "#ccc", borderBottomWidth: 1, },
         ]}
       >
         <Text
@@ -667,12 +667,11 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
-    padding: 15,
+    padding: 5,
     borderBottomWidth: 1,
-    borderBottomColor: '#333',
   },
   title: {
-    marginTop: 25,
+    marginTop: 5,
     fontSize: 24,
     fontWeight: 'bold',
     textAlign: 'center',
