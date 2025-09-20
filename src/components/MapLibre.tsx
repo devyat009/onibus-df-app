@@ -17,6 +17,8 @@ import { TrafficJam } from '../types';
 
 // Assets
 import yellowBlackStripes from '../assets/images/pattern/yellow-black.png';
+import BusStopIcon from '../assets/images/svg/bus-stop.svg';
+import BusIcon from '../assets/images/svg/bus.svg';
 
 interface BusStopMarker {
   id: string;
@@ -443,7 +445,9 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
                   justifyContent: 'center',
                 }}
               >
-                <View
+                <BusStopIcon width={35} height={35} color="#007AFF" />
+                {/* Placeholder for bus stop icon */}
+                {/* <View
                   style={{
                     width: 35,
                     height: 35,
@@ -452,7 +456,7 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
                     borderWidth: 2,
                     borderColor: '#fff',
                   }}
-                />
+                /> */}
 
                 <View
                   pointerEvents="none"
@@ -476,6 +480,7 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
         {/* Bus markers */}
         {currentZoom >= 13 && buses && buses.map((bus: BusMarker) => {
           const isFavoriteBus = isBusFavorite(bus.linha ?? '');
+          const color = bus.corOperadora || '#5a4799';
           return (
             <PointAnnotation
               key={bus.id}
@@ -493,7 +498,9 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
                   justifyContent: 'center',
                 }}
               >
-                <View
+                <BusIcon width={30} height={30} color={color} />
+                {/* Placeholder for bus icon */}
+                {/* <View
                   style={{
                     width: 30,
                     height: 30,
@@ -508,7 +515,7 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
                     shadowRadius: 3,
                     shadowOffset: { width: 0, height: 1 },
                   }}
-                />
+                /> */}
                 <View
                   pointerEvents="none"
                   style={{
