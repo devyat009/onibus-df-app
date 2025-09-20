@@ -330,6 +330,8 @@ export default function Index() {
       timeout = setTimeout(fetchBuses, currentInterval);
     };
 
+    fetchBuses(); // starts cicle
+
     return () => clearTimeout(timeout);
   }, [bounds, showOnlyActiveBuses]);
 
