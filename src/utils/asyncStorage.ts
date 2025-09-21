@@ -13,7 +13,7 @@ export async function getCachedOrFetch<T>(
   options: CacheOptions = {}
 ): Promise<T> {
   const { ttl = THREE_DAYS_MS, forceRefresh = false } = options;
-  
+
   if (forceRefresh) {
     const data = await fetcher();
     await setCacheData(key, data);
@@ -43,17 +43,16 @@ export async function setCacheData<T>(key: string, data: T): Promise<void> {
     await AsyncStorage.setItem(key, JSON.stringify(data));
     await AsyncStorage.setItem(`${key}_timestamp`, String(Date.now()));
   } catch (error) {
-    console.error(`Failed to cache data for key ${key}:`, error);
+    console.error(`Falha ao armazenar dados no cache para a chave ${key}:`, error);
   }
 }
 
 export async function getCacheData<T>(key: string): Promise<T | null> {
   try {
     const cache = await AsyncStorage.getItem(key);
-    console.warn(`cache for ${key}:`, cache ? JSON.parse(cache) : null);
     return cache ? JSON.parse(cache) : null;
   } catch (error) {
-    console.error(`Failed to get cached data for key ${key}:`, error);
+    console.error(`Falha ao obter dados do cache para a chave ${key}:`, error);
     return null;
   }
 }
@@ -67,7 +66,7 @@ export async function clearCache(key?: string): Promise<void> {
       await AsyncStorage.clear();
     }
   } catch (error) {
-    console.error('Failed to clear cache:', error);
+    console.error('Falha ao limpar cache:', error);
   }
 }
 
@@ -75,11 +74,11 @@ export async function isCacheValid(key: string, ttl: number = THREE_DAYS_MS): Pr
   try {
     const timestamp = await AsyncStorage.getItem(`${key}_timestamp`);
     if (!timestamp) return false;
-    
+
     const now = Date.now();
     return now - Number(timestamp) < ttl;
   } catch (error) {
-    console.error(`Failed to check cache validity for key ${key}:`, error);
+    console.error(`Falha ao verificar validade do cache para a chave ${key}:`, error);
     return false;
   }
 }
@@ -90,4 +89,7 @@ export const CACHE_KEYS = {
   FROTA: 'frota_operadora',
   STOPS: 'bus_stops',
   BUSES: 'bus_positions',
+  BUS_HORARIO: 'bus_hours',
+  FAVORITES_BUSES: 'favorites_buses',
+  FAVORITES_STOPS: 'favorites_stops',
 } as const;

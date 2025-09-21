@@ -13,7 +13,7 @@ const Settings = () => {
         <View style={styles.content}>
           <Text style={[styles.title, { color: appTheme === 'dark' ? '#fff' : '#000' }]}>Configurações</Text>
           <Text style={[styles.subtitle, { color: appTheme === 'dark' ? '#ccc' : '#666' }]}>Configurações do aplicativo</Text>
-          <Text style={{marginTop: 10}}></Text>
+          <Text style={{ marginTop: 10 }}></Text>
           <SettingsOptions />
           <DeveloperOptions />
         </View>

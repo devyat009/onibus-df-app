@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { useAppStore } from '../store';
 import { wazeTrafficService } from '../services/wazeApi';
+import { useAppStore } from '../store';
 import { MapBounds } from '../types';
 
 interface UseTrafficDataOptions {
@@ -35,22 +35,22 @@ export function useTrafficData({
       setError('traffic', null);
 
       const trafficJams = await wazeTrafficService.getTrafficJams(mapBounds);
-      
-      // Debug: validar estrutura dos dados
+
+      // Debug: Validate data structure
       const validJams = trafficJams.filter(jam => {
-        const isValid = jam.lines && 
-                       Array.isArray(jam.lines) && 
-                       jam.lines.length >= 2 &&
-                       jam.lines.every(coord => 
-                         Array.isArray(coord) && 
-                         coord.length === 2 && 
-                         typeof coord[0] === 'number' && 
-                         typeof coord[1] === 'number' &&
-                         !isNaN(coord[0]) && !isNaN(coord[1]) &&
-                         Math.abs(coord[0]) <= 180 && // longitude válida
-                         Math.abs(coord[1]) <= 90     // latitude válida
-                       );
-        
+        const isValid = jam.lines &&
+          Array.isArray(jam.lines) &&
+          jam.lines.length >= 2 &&
+          jam.lines.every(coord =>
+            Array.isArray(coord) &&
+            coord.length === 2 &&
+            typeof coord[0] === 'number' &&
+            typeof coord[1] === 'number' &&
+            !isNaN(coord[0]) && !isNaN(coord[1]) &&
+            Math.abs(coord[0]) <= 180 && // longitude valid
+            Math.abs(coord[1]) <= 90     // latitude valid
+          );
+
         if (!isValid) {
           console.warn('Invalid traffic jam data:', {
             id: jam.id,
@@ -59,11 +59,11 @@ export function useTrafficData({
             firstCoord: jam.lines?.[0]
           });
         }
-        
+
         return isValid;
       });
 
-      console.log(`Carregados ${validJams.length} dados de trânsito válidos de ${trafficJams.length} totais`);
+      // console.log(`Carregados ${validJams.length} dados de trânsito válidos de ${trafficJams.length} totais`);
       setTraffic(validJams);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Erro ao carregar dados de trânsito';
@@ -77,7 +77,7 @@ export function useTrafficData({
   // Function to check if bounds changed significantly (to avoid unnecessary API calls)
   const boundsChanged = (newBounds: MapBounds, oldBounds: MapBounds | null): boolean => {
     if (!oldBounds) return true;
-    
+
     const threshold = 0.001; // ~100m difference
     return (
       Math.abs(newBounds.north - oldBounds.north) > threshold ||

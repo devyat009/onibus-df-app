@@ -14,12 +14,12 @@ interface UrlItem {
   requiresBounds?: boolean;
 }
 
-// Bounds de exemplo para Brasília
+// Boundaries of Distrito Federal, Brazil
 const DEFAULT_BOUNDS = {
-  north: -15.4300, // extremo norte do DF
-  south: -16.0600, // extremo sul do DF
-  east: -47.3300,  // extremo leste do DF
-  west: -48.1200,  // extremo oeste do DF
+  north: -15.4300, // Extreme north of DF
+  south: -16.0600, // Extreme south of DF
+  east: -47.3300,  // Extreme east of DF
+  west: -48.1200,  // Extreme west of DF
 };
 
 const URLS: UrlItem[] = [
@@ -82,52 +82,52 @@ const DeveloperOptions = () => {
     try {
       let data: any;
       const startTime = Date.now();
-      
+
       switch (key) {
         case 'buses':
-          // Usar o valor do store para determinar o filtro
+          // Use the store value to determine the filter
           data = await apiService.getBuses(undefined, busTimeFilter);
           break;
-          
+
         case 'busesEnhanced':
-          // Usar o valor do store também para enhanced buses
+          // Use the store value to determine the filter
           data = await apiService.getEnhancedBuses(undefined, busTimeFilter);
           break;
-          
+
         case 'stops':
           data = await apiService.getStops(DEFAULT_BOUNDS);
           break;
-          
+
         case 'lines':
           data = await apiService.getLinesCached();
           break;
-          
+
         case 'frota':
           data = await apiService.getFrotaCached();
           break;
-          
+
         case 'wazeTraffic':
           data = await wazeTrafficService.getTrafficJams(DEFAULT_BOUNDS);
           break;
-          
+
         default:
           throw new Error('Endpoint não implementado');
       }
-      
+
       const endTime = Date.now();
       const duration = endTime - startTime;
-      
+
       setResults(r => ({ ...r, [key]: 'success' }));
-      
-      // Criar mensagem detalhada baseada no tipo de dado
+
+      // Create detailed message based on data type
       let logMessage = `Sucesso! ${Array.isArray(data) ? data.length : 'N/A'} items em ${duration}ms`;
       if (key === 'buses') {
         logMessage += ` (Filtro: ${busTimeFilter})`;
       }
-      
+
       setLogs(l => ({ ...l, [key]: logMessage }));
       setPreviewData(d => ({ ...d, [key]: data }));
-      
+
     } catch (e) {
       setResults(r => ({ ...r, [key]: 'error' }));
       setLogs(l => ({ ...l, [key]: String(e) }));
@@ -149,10 +149,10 @@ const DeveloperOptions = () => {
 
   return (
     <View>
-      {/* Opções de Desenvolvedor */}
-      <TouchableOpacity onPress={toggleExpand} style={[styles.option, { 
+      {/* Developer Options */}
+      <TouchableOpacity onPress={toggleExpand} style={[styles.option, {
         borderBottomColor: appTheme === 'dark' ? '#333' : '#eee',
-        backgroundColor: appTheme === 'dark' ? '#000' : '#fff' 
+        backgroundColor: appTheme === 'dark' ? '#000' : '#fff'
       }]}>
         <Text style={[styles.optionText, { color: appTheme === 'dark' ? '#fff' : '#333' }]}>Opções de Desenvolvedor</Text>
         <Ionicons
@@ -163,8 +163,8 @@ const DeveloperOptions = () => {
       </TouchableOpacity>
       {expanded && (
         <View style={[styles.expandedContent, { backgroundColor: appTheme === 'dark' ? '#111' : '#f9f9f9' }]}>
-          
-          {/* Toggle para filtro de ônibus */}
+
+          {/* Toggle for bus filter */}
           <View style={styles.toggleRow}>
             <Text style={[styles.toggleText, { color: appTheme === 'dark' ? '#fff' : '#333' }]}>
               Filtro Ônibus: {busTimeFilter === '30min' ? '30 minutos' : 'Sem filtro'}
@@ -199,8 +199,8 @@ const DeveloperOptions = () => {
                 )}
               </View>
               <View style={styles.statusContainer}>
-                <Text style={{ 
-                  color: results[key] === 'success' ? '#4CAF50' : results[key] === 'error' ? '#F44336' : (appTheme === 'dark' ? '#ccc' : '#888'), 
+                <Text style={{
+                  color: results[key] === 'success' ? '#4CAF50' : results[key] === 'error' ? '#F44336' : (appTheme === 'dark' ? '#ccc' : '#888'),
                   fontSize: 12,
                   textAlign: 'right',
                 }}>
@@ -222,7 +222,7 @@ const DeveloperOptions = () => {
             </View>
           ))}
 
-          {/* Botão para limpar cache */}
+          {/* Button to clear cache */}
           <TouchableOpacity
             style={[
               styles.clearCacheButton,
@@ -239,7 +239,7 @@ const DeveloperOptions = () => {
         </View>
       )}
 
-      {/* Modal de preview */}
+      {/* Preview modal */}
       <Modal
         visible={showPreview.visible && !!showPreview.key}
         animationType="slide"
