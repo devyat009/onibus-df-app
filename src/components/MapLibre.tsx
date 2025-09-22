@@ -176,6 +176,27 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
     };
   }, [traffic]);
 
+  const trafficLabelPoints = React.useMemo(() => {
+    if (!traffic || traffic.length === 0) return [];
+    return traffic
+      .filter(jam =>
+        !jam.pattern &&
+        Array.isArray(jam.lines) &&
+        jam.lines.length > 0 &&
+        jam.lines.every(c => Array.isArray(c) && c.length === 2 && typeof c[0] === 'number' && typeof c[1] === 'number')
+      )
+      .map(jam => {
+        const mid = Math.floor(jam.lines.length / 2);
+        const coord = jam.lines[mid] as [number, number]; // [lon, lat]
+        return {
+          id: String(jam.id ?? `${jam.street}-${mid}`),
+          coordinate: coord,
+          color: jam.color,
+          speedText: `${Math.round(jam.speedKMH ?? 0)} km/h`,
+        };
+      });
+  }, [traffic]);
+
   // Atualiza o zoom quando a prop muda (ao recentralizar)
   React.useEffect(() => {
     if (zoom !== undefined) {
@@ -329,7 +350,9 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
         onRegionDidChange={handleRegionDidChange}
       >
         {/* Line pattern of line to closed roads */}
-        <Images images={{ 'yellow-black': yellowBlackStripes }} />
+        <Images images={{
+          'yellow-black': yellowBlackStripes,
+        }} />
 
         {latitude !== undefined && longitude !== undefined && zoom !== undefined ? (
           <Camera
@@ -402,6 +425,33 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
             />
           </ShapeSource>
         )}
+
+        {/* Traffic labels */}
+        {showTraffic && currentZoom >= 14 && trafficLabelPoints.length > 0 && trafficLabelPoints.map(lbl => (
+          <PointAnnotation
+            key={`traffic-label-${lbl.id}`}
+            id={`traffic-label-${lbl.id}`}
+            coordinate={lbl.coordinate}
+          >
+            <View
+              pointerEvents="none"
+              style={{
+                backgroundColor: lbl.color,
+                borderRadius: 6,
+                paddingHorizontal: 6,
+                paddingVertical: 2,
+                borderWidth: 1,
+                elevation: 100,
+                zIndex: 100,
+                marginLeft: 25,
+              }}
+            >
+              <Text style={{ color: '#222', fontSize: 12, fontWeight: '600' }}>
+                {lbl.speedText}
+              </Text>
+            </View>
+          </PointAnnotation>
+        ))}
 
         {/* User location marker */}
         {userLocation && (
