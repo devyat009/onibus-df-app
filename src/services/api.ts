@@ -731,7 +731,7 @@ class ApiService {
       datalocal: properties.datalocal || '',
       dataregistro: '', // Not available in new API
       tarifa: undefined, // Not available in new API
-      active: Boolean(properties.veiculo.prefixo),
+      active: Boolean(properties.veiculo.numero),
     };
 
     // Log first few buses for debugging
