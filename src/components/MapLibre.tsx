@@ -487,7 +487,7 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
         })}
 
         {/* Bus markers */}
-        {currentZoom >= 11 && buses && buses.map((bus: BusMarker) => {
+        {currentZoom >= 13.4 && buses && buses.map((bus: BusMarker) => {
           const isFavoriteBus = isBusFavorite(bus.linha ?? '');
           const color = bus.corOperadora || '#5a4799';
           return (

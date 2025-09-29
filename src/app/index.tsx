@@ -1,4 +1,4 @@
-import apiService from '@/src/services/api';
+import { apiService } from '@/src/services/api';
 import { useAppStore } from '@/src/store';
 import { BusStop } from '@/src/types';
 import { Ionicons } from '@expo/vector-icons';
@@ -35,6 +35,8 @@ export default function Index() {
   const intervalMs = 10000;
   const fetchingBusesRef = useRef(false);
   const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const renderTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const loadIdRef = useRef(0);
   // Store
   const {
     loading,
@@ -60,7 +62,9 @@ export default function Index() {
 
   // Map Camera
   const [cameraMode, setCameraMode] = useState<'auto' | 'free'>('auto');
-  const [userMapZoom, setUserMapZoom] = useState(Number);
+  const [userMapZoom, setUserMapZoom] = useState<number | undefined>(undefined);
+  const BUS_ZOOM_THRESHOLD = 13.4;
+  const STOPS_ZOOM_THRESHOLD = 14;
 
   // Settings modal
   const [showSettings, setShowSettings] = useState(false);
@@ -170,24 +174,33 @@ export default function Index() {
   // Request permission on mount and start location watch
   useEffect(() => {
     let subscription: any = null;
+    let isCancelled = false;
 
-    const startLocationWatch = async () => {
-      await requestPermission();
-      subscription = await watchLocation();
-    };
+    (async () => {
+      try {
+        const permission = await requestPermission();
+        if (!permission || isCancelled) return;
 
-    startLocationWatch();
+        await getCurrentLocation();
+        if (isCancelled) return;
+
+        subscription = await watchLocation();
+      } catch (e) {
+        console.warn('Location watch failed:', e);
+      }
+    })();
 
     return () => {
-      if (subscription) {
+      isCancelled = true;
+      if (subscription && typeof subscription.remove === 'function') {
         subscription.remove();
       }
     };
-  }, [requestPermission, watchLocation]);
+  }, [getCurrentLocation, requestPermission, watchLocation]);
 
-  // Center on user at start
+  // Initialize camera once when first userLocation arrives
   useEffect(() => {
-    if (userLocation && !initialized) {
+    if (!initialized && userLocation) {
       setMapCenter({
         latitude: userLocation.latitude,
         longitude: userLocation.longitude,
@@ -264,6 +277,10 @@ export default function Index() {
     center?: { latitude: number; longitude: number },
     zoom?: number
   ) => {
+    // Cancel any ongoing incremental rendering when user moves the map
+    renderTimeoutsRef.current.forEach(t => clearTimeout(t));
+    renderTimeoutsRef.current = [];
+    loadIdRef.current++;
     setPendingBounds(bounds);
     if (cameraMode === 'auto') {
       setCameraMode('free');
@@ -282,20 +299,27 @@ export default function Index() {
 
   // Fetch stops when changing bounds
   useEffect(() => {
-    if (!bounds) return;
+    if (!bounds || (userMapZoom ?? 0) < STOPS_ZOOM_THRESHOLD) return;
     apiService.getStops(bounds)
       .then(setStops)
       .catch((error) => {
         console.error('Error fetching bus stops:', error);
       });
-  }, [bounds]);
+  }, [bounds, userMapZoom]);
 
   // Fetch buses periodically
   useEffect(() => {
     let currentInterval = intervalMs;
 
     const fetchBuses = async () => {
-      if (!bounds || fetchingBusesRef.current) return;
+      // Skip fetching if no bounds or below zoom threshold
+      if (!bounds || (userMapZoom ?? 0) < BUS_ZOOM_THRESHOLD) {
+        if (refreshTimeoutRef.current) clearTimeout(refreshTimeoutRef.current);
+        // Re-check soon so we start fetching quickly after user zooms in
+        refreshTimeoutRef.current = setTimeout(fetchBuses, 1000);
+        return;
+      }
+      if (fetchingBusesRef.current) return;
       fetchingBusesRef.current = true;
       setIsFetchingBuses(true);
       try {
@@ -304,7 +328,16 @@ export default function Index() {
           ? result.filter(bus => bus.linha && bus.linha.trim())
           : result;
 
-        const mappedBuses = filteredBuses.map(bus => ({
+        // Cancel any pending incremental rendering from previous load
+        renderTimeoutsRef.current.forEach(t => clearTimeout(t));
+        renderTimeoutsRef.current = [];
+        const myLoadId = ++loadIdRef.current;
+
+        // Incremental rendering in chunks to avoid blocking UI
+        const chunkSize = 200;
+        const total = filteredBuses.length;
+
+        const mapBus = (bus: any) => ({
           id: bus.id,
           latitude: bus.latitude,
           longitude: bus.longitude,
@@ -317,9 +350,26 @@ export default function Index() {
           dataregistro: bus.dataregistro,
           operadora: bus.operadora,
           corOperadora: bus.corOperadora,
-        }));
+        });
 
-        setBuses(mappedBuses);
+        const firstCount = Math.min(chunkSize, total);
+        const firstChunk = filteredBuses.slice(0, firstCount).map(mapBus);
+        setBuses(firstChunk);
+
+        const pushNext = (startIndex: number) => {
+          if (loadIdRef.current !== myLoadId) return; // canceled by new load
+          if (startIndex >= total) return;
+          const nextChunk = filteredBuses.slice(startIndex, startIndex + chunkSize).map(mapBus);
+          setBuses(prev => prev.concat(nextChunk));
+          if (startIndex + chunkSize < total) {
+            const t = setTimeout(() => pushNext(startIndex + chunkSize), 16);
+            renderTimeoutsRef.current.push(t);
+          }
+        };
+        if (firstCount < total) {
+          const t = setTimeout(() => pushNext(firstCount), 16);
+          renderTimeoutsRef.current.push(t);
+        }
         currentInterval = intervalMs; // reset on success
       } catch (error) {
         console.warn('Error fetching buses:', error);
@@ -338,8 +388,10 @@ export default function Index() {
 
     return () => {
       if (refreshTimeoutRef.current) clearTimeout(refreshTimeoutRef.current);
+      renderTimeoutsRef.current.forEach(t => clearTimeout(t));
+      renderTimeoutsRef.current = [];
     };
-  }, [bounds, showOnlyActiveBuses, intervalMs]);
+  }, [bounds, showOnlyActiveBuses, userMapZoom, intervalMs]);
 
   return (
     <SafeAreaView
@@ -530,7 +582,7 @@ export default function Index() {
               }}
             >
               <StopsPainelMenu
-                stops={userMapZoom >= 15.4 ? stops : []}
+                stops={(userMapZoom ?? 0) >= 15.4 ? stops : []}
                 selectedStopFromMap={selectedStopFromMap}
                 onStopSelected={() => setSelectedStopFromMap(null)}
               />

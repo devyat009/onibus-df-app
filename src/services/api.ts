@@ -269,7 +269,7 @@ class ApiService {
     // Mapeamento das operadoras principais e suas cores
     const operadorasPrincipais: { [key: string]: { nome: string; cor: string } } = {
       'URBI': { nome: 'URBI', cor: '#00bfffff' }, // Light blue
-      'PIONEIRA': { nome: 'PIONEIRA', cor: '#ffff00' }, // Yellow
+      'PIONEIRA': { nome: 'PIONEIRA', cor: '#ffdd00ff' }, // Yellow
       'PIRACICABANA': { nome: 'PIRACICABANA', cor: '#006400' }, // Dark green
       'MARECHAL': { nome: 'MARECHAL', cor: '#fb6900' }, // Orange
       'SÃO JOSÉ': { nome: 'SÃO JOSÉ', cor: '#7af200' }, // #938326 before, now is #7af200 and is called BsBus
