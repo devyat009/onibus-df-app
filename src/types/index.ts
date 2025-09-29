@@ -159,6 +159,30 @@ export interface BusApiProperties {
   tarifa?: number;
 }
 
+// New bus position API response types
+export interface NewBusApiResponse {
+  type: 'FeatureCollection';
+  NomeOperadora: string;
+  features: {
+    type: 'Feature';
+    geometry: {
+      type: 'Point';
+      coordinates: [number, number]; // [longitude, latitude]
+    };
+    properties: {
+      veiculo: {
+        prefixo: string;
+        numero: string;
+        sentido: string;
+        linha?: string;
+      };
+      direcao: string;
+      velocidade: string;
+      datalocal: string;
+    };
+  }[];
+}
+
 export interface StopApiProperties {
   parada?: string;
   cd_parada?: string;
@@ -210,9 +234,10 @@ export interface HorarioApiProperties {
 export interface AppConfig {
   api: {
     baseUrl: string;
+    geoserverUrl?: string;
     endpoints: {
       buses: string;
-      stops: string;
+      stops: string;  
       lines: string;
       frota: string;
       horario: string;

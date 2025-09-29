@@ -8,7 +8,7 @@ import {
   ShapeSource
 } from '@maplibre/maplibre-react-native';
 import * as Location from 'expo-location';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Animated, Easing, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useBusFavorites, useStopFavorites } from '../hooks/useFavorites';
 import { useTrafficData } from '../hooks/useTrafficData';
@@ -105,6 +105,11 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
   const [userSpeed, setUserSpeed] = useState<number | null>(null);
   const [userHeading, setUserHeading] = useState<number | null>(null);
 
+  // Debug logging
+  useEffect(() => {
+    console.log(`MapLibre - Received ${buses?.length || 0} buses, zoom: ${currentZoom.toFixed(1)}`);
+  }, [buses, currentZoom]);
+
   // Function to toggle favorite for selected bus
   const toggleFavorite = useCallback(() => {
     if (!selectedBus?.linha) return;
@@ -186,7 +191,11 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
   // Handle region change
   const handleRegionDidChange = async (event: any) => {
     if (onRegionDidChange && event && event.properties && event.properties.visibleBounds) {
-      const [[west, south], [east, north]] = event.properties.visibleBounds;
+      const [[lng1, lat1], [lng2, lat2]] = event.properties.visibleBounds;
+      const west = Math.min(lng1, lng2);
+      const east = Math.max(lng1, lng2);
+      const south = Math.min(lat1, lat2);
+      const north = Math.max(lat1, lat2);
       // Extract center and zoom from event
       const center = event.geometry?.coordinates
         ? { longitude: event.geometry.coordinates[0], latitude: event.geometry.coordinates[1] }
@@ -478,7 +487,7 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
         })}
 
         {/* Bus markers */}
-        {currentZoom >= 13 && buses && buses.map((bus: BusMarker) => {
+        {currentZoom >= 11 && buses && buses.map((bus: BusMarker) => {
           const isFavoriteBus = isBusFavorite(bus.linha ?? '');
           const color = bus.corOperadora || '#5a4799';
           return (

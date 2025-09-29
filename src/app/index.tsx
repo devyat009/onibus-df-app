@@ -2,7 +2,7 @@ import apiService from '@/src/services/api';
 import { useAppStore } from '@/src/store';
 import { BusStop } from '@/src/types';
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Alert,
   Animated,
@@ -27,11 +27,14 @@ export default function Index() {
   const { userLocation, getCurrentLocation, requestPermission, watchLocation } = useLocation();
   // Api Service
   const [bounds, setBounds] = useState<any>(null);
+  const [pendingBounds, setPendingBounds] = useState<any>(null);
   const [stops, setStops] = useState<any[]>([]);
   const [buses, setBuses] = useState<any[]>([]);
   // loading bar
   const [isFetchingBuses, setIsFetchingBuses] = useState(false); // blue loading bar
-  const [intervalMs, setIntervalMs] = useState(8000);
+  const intervalMs = 10000;
+  const fetchingBusesRef = useRef(false);
+  const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Store
   const {
     loading,
@@ -261,7 +264,7 @@ export default function Index() {
     center?: { latitude: number; longitude: number },
     zoom?: number
   ) => {
-    setBounds(bounds);
+    setPendingBounds(bounds);
     if (cameraMode === 'auto') {
       setCameraMode('free');
     }
@@ -269,6 +272,13 @@ export default function Index() {
       setUserMapZoom(zoom); // user's zoom level when moving the map
     }
   };
+
+  // Debounce bounds updates: only set real bounds 0.7s after map stops moving, fixes too many requests to API while moving map
+  useEffect(() => {
+    if (!pendingBounds) return;
+    const t = setTimeout(() => setBounds(pendingBounds), 700);
+    return () => clearTimeout(t);
+  }, [pendingBounds]);
 
   // Fetch stops when changing bounds
   useEffect(() => {
@@ -282,23 +292,19 @@ export default function Index() {
 
   // Fetch buses periodically
   useEffect(() => {
-    let timeout: ReturnType<typeof setTimeout>;
-    let currentInterval = 8000;
+    let currentInterval = intervalMs;
 
     const fetchBuses = async () => {
+      if (!bounds || fetchingBusesRef.current) return;
+      fetchingBusesRef.current = true;
       setIsFetchingBuses(true);
-      if (!bounds) {
-        timeout = setTimeout(fetchBuses, currentInterval);
-        setIsFetchingBuses(false);
-        return;
-      }
       try {
         const result = await apiService.getEnhancedBuses(bounds);
         const filteredBuses = showOnlyActiveBuses
           ? result.filter(bus => bus.linha && bus.linha.trim())
           : result;
 
-        setBuses(filteredBuses.map(bus => ({
+        const mappedBuses = filteredBuses.map(bus => ({
           id: bus.id,
           latitude: bus.latitude,
           longitude: bus.longitude,
@@ -311,29 +317,29 @@ export default function Index() {
           dataregistro: bus.dataregistro,
           operadora: bus.operadora,
           corOperadora: bus.corOperadora,
-        })));
-        currentInterval = 8000; // Reset time on success
+        }));
+
+        setBuses(mappedBuses);
+        currentInterval = intervalMs; // reset on success
       } catch (error) {
         console.warn('Error fetching buses:', error);
-        currentInterval += 1000; // Increase 1s on each failure
-        if (currentInterval > 30000) currentInterval = 30000; // Max limit of 30s (optional)
-        // debug error
-        // if(error instanceof ApiError) {
-        //   console.error('ApiError:', error.message, error.details);
-        //   // ou
-        //   // alert(JSON.stringify(error.details, null, 2));
-        // } else {
-        //   console.error(error);
-        // }
+        currentInterval = Math.min(currentInterval + 1000, 30000);
+      } finally {
+        setIsFetchingBuses(false);
+        fetchingBusesRef.current = false;
       }
-      setIsFetchingBuses(false);
-      timeout = setTimeout(fetchBuses, currentInterval);
+
+      if (refreshTimeoutRef.current) clearTimeout(refreshTimeoutRef.current);
+      refreshTimeoutRef.current = setTimeout(fetchBuses, currentInterval);
     };
 
-    fetchBuses(); // starts cicle
+    if (refreshTimeoutRef.current) clearTimeout(refreshTimeoutRef.current);
+    fetchBuses();
 
-    return () => clearTimeout(timeout);
-  }, [bounds, showOnlyActiveBuses]);
+    return () => {
+      if (refreshTimeoutRef.current) clearTimeout(refreshTimeoutRef.current);
+    };
+  }, [bounds, showOnlyActiveBuses, intervalMs]);
 
   return (
     <SafeAreaView

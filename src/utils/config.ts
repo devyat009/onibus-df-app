@@ -4,9 +4,10 @@ const isDevelopment = __DEV__;
 
 export const config: AppConfig = {
   api: {
-    baseUrl: 'http://geoserver.semob.df.gov.br/geoserver/semob/ows',
+    baseUrl: 'https://dados.semob.df.gov.br',
+    geoserverUrl: 'http://geoserver.semob.df.gov.br/geoserver/semob/ows',
     endpoints: {
-      buses: 'service=WFS&version=1.0.0&request=GetFeature&typeName=semob%3A%C3%9Altima%20posi%C3%A7%C3%A3o%20da%20frota&outputFormat=application%2Fjson&maxFeatures=500',
+      buses: '/posicao',
       stops: 'service=WFS&version=1.0.0&request=GetFeature&typeName=semob%3AParadas%20de%20onibus&outputFormat=application%2Fjson&maxFeatures=200',
       lines: 'service=WFS&version=1.0.0&request=GetFeature&typeName=semob%3ALinhas%20de%20onibus&outputFormat=application%2Fjson',
       frota: 'service=WFS&version=1.0.0&request=GetFeature&typeName=semob%3AFrota%20por%20Operadora&outputFormat=application%2Fjson',

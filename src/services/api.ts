@@ -2,7 +2,7 @@ import { useAppStore } from '../store';
 import {
   ApiResponse,
   Bus,
-  BusApiProperties,
+  // BusApiProperties, // Commented out - old geoserver API type
   BusHorario,
   BusLine,
   BusStop,
@@ -13,6 +13,7 @@ import {
   HorarioApiProperties,
   LineApiProperties,
   MapBounds,
+  NewBusApiResponse,
   StopApiProperties,
   StopSchedule
 } from '../types';
@@ -39,11 +40,20 @@ class ApiService {
     this.baseUrl = appConfig.api.baseUrl;
   }
 
-  private async makeRequest<T>(endpoint: string, bounds?: MapBounds): Promise<ApiResponse<T>> {
+  private async makeRequest<T>(endpoint: string, bounds?: MapBounds, useGeoserver: boolean = false): Promise<ApiResponse<T>> {
     try {
-      let url = `${this.baseUrl}?${endpoint}`;
+      let url: string;
+      
+      if (useGeoserver) {
+        // Use geoserver for legacy endpoints
+        const geoserverUrl = appConfig.api.geoserverUrl || 'http://geoserver.semob.df.gov.br/geoserver/semob/ows';
+        url = `${geoserverUrl}?${endpoint}`;
+      } else {
+        // Use new API baseUrl for new endpoints
+        url = endpoint.startsWith('/') ? `${this.baseUrl}${endpoint}` : `${this.baseUrl}?${endpoint}`;
+      }
 
-      if (bounds) {
+      if (bounds && useGeoserver) {
         const minX = Math.min(bounds.west, bounds.east);
         const maxX = Math.max(bounds.west, bounds.east);
         const minY = Math.min(bounds.south, bounds.north);
@@ -70,7 +80,7 @@ class ApiService {
           } else {
             errorBody = await response.text();
           }
-        } catch (e) {
+        } catch {
           errorBody = 'Erro ao ler corpo da resposta';
         }
 
@@ -109,13 +119,8 @@ class ApiService {
   }
 
   async getBuses(bounds?: MapBounds, timeFilter?: '30min' | '24h'): Promise<Bus[]> {
-    const response = await this.makeRequest<BusApiProperties>(
-      appConfig.api.endpoints.buses,
-      bounds
-    );
-    const allBuses = response.features
-      .map(feature => this.transformBusFromApi(feature))
-      .filter(bus => bus !== null) as Bus[];
+    // USING NEW API ONLY - Old geoserver API commented out for future reference
+    const allBuses = await this.fetchBusesFromNewApi();
 
     // Use filter from store if not provided as parameter
     const filterToUse = timeFilter || useAppStore.getState().busTimeFilter;
@@ -151,10 +156,73 @@ class ApiService {
       return validBuses;
     }
 
-    const filteredBuses = filterActiveBusesRecent(allBuses, filterToUse);
-    // console.log(`buses on last ${filterToUse}: `, filteredBuses.length);
-    return filteredBuses;
+    const timeFilteredBuses = filterActiveBusesRecent(allBuses, filterToUse);
+    if (bounds) {
+      console.log('Bounds filter:', bounds);
+      console.log('Buses before bounds filter:', timeFilteredBuses.length);
+    }
+    const inViewBuses = bounds
+      ? timeFilteredBuses.filter(bus => this.isBusInBounds(bus, bounds))
+      : timeFilteredBuses;
+    if (bounds) {
+      console.log('Buses after bounds filter:', inViewBuses.length);
+      if (inViewBuses.length === 0 && timeFilteredBuses.length > 0) {
+        const sample = timeFilteredBuses[0];
+        console.log('Sample bus coords:', { lat: sample.latitude, lng: sample.longitude });
+      }
+    }
+
+    return inViewBuses;
     //return allBuses;
+  }
+
+  /**
+   * Fetch buses from the new API endpoint
+   */
+  private async fetchBusesFromNewApi(): Promise<Bus[]> {
+    try {
+      // console.log('Fetching buses from new API:', `${this.baseUrl}${appConfig.api.endpoints.buses}`);
+      const response = await fetch(`${this.baseUrl}${appConfig.api.endpoints.buses}`, {
+        headers: {
+          'Accept': 'application/json',
+        },
+        cache: 'no-store',
+      });
+
+      if (!response.ok) {
+        throw new ApiError('API_ERROR', `HTTP ${response.status} - ${response.statusText}`, {
+          status: response.status,
+          statusText: response.statusText,
+          url: `${this.baseUrl}${appConfig.api.endpoints.buses}`,
+        });
+      }
+
+      const data: NewBusApiResponse[] = await response.json();
+      // console.log('Raw API response:', { operatorCount: data.length, firstOperator: data[0] });
+      const allBuses: Bus[] = [];
+
+      // Process each operator's data
+      data.forEach(operatorData => {
+        if (operatorData.features && Array.isArray(operatorData.features)) {
+          const buses = operatorData.features
+            .map(feature => this.transformBusFromNewApi(feature, operatorData.NomeOperadora))
+            .filter(bus => bus !== null) as Bus[];
+          //console.log(`Operator ${operatorData.NomeOperadora}: ${buses.length} buses`);
+          allBuses.push(...buses);
+        }
+      });
+
+      console.log(`Total buses fetched from new API: ${allBuses.length}`);
+      return allBuses;
+    } catch (error: any) {
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      throw new ApiError('NETWORK_ERROR', `Failed to fetch bus data: ${error?.message || error}`, {
+        originalError: error,
+        stack: error?.stack,
+      });
+    }
   }
 
   /**
@@ -187,14 +255,7 @@ class ApiService {
     // Enhance buses with operator information
     const enhancedBuses = buses.map(bus => this.enhanceBusWithOperator(bus, frotaMap));
 
-    // Debug: contar por operadora
-    // const operadoraCounts = new Map<string, number>();
-    // enhancedBuses.forEach(bus => {
-    //   const operadora = bus.operadora?.nome || 'SEM_OPERADORA';
-    //   operadoraCounts.set(operadora, (operadoraCounts.get(operadora) || 0) + 1);
-    // });
-
-    // console.log('Onibus por operadora:', Object.fromEntries(operadoraCounts));
+    // console.log(`Enhanced buses - returning ${enhancedBuses.length} enhanced buses`);
 
     return enhancedBuses;
   }
@@ -264,7 +325,8 @@ class ApiService {
 
     const response = await this.makeRequest<StopApiProperties>(
       endpoint,
-      bounds
+      bounds,
+      true // Use geoserver for stops
     );
 
     return response.features
@@ -274,7 +336,9 @@ class ApiService {
 
   async getLines(): Promise<BusLine[]> {
     const response = await this.makeRequest<LineApiProperties>(
-      appConfig.api.endpoints.lines
+      appConfig.api.endpoints.lines,
+      undefined,
+      true // Use geoserver for lines
     );
 
     return response.features
@@ -293,7 +357,9 @@ class ApiService {
 
   async getFrota(): Promise<FrotaOperadora[]> {
     const response = await this.makeRequest<FrotaOperadora>(
-      appConfig.api.endpoints.frota
+      appConfig.api.endpoints.frota,
+      undefined,
+      true // Use geoserver for frota
     );
 
     return response.features
@@ -535,7 +601,9 @@ class ApiService {
   // Cached version of getHorario
   async fetchHorario(): Promise<BusHorario[]> {
     const response = await this.makeRequest<HorarioApiProperties>(
-      appConfig.api.endpoints.horario
+      appConfig.api.endpoints.horario,
+      undefined,
+      true // Use geoserver for horario
     );
 
     return response.features
@@ -582,32 +650,96 @@ class ApiService {
     };
   }
 
-  private transformBusFromApi(feature: ApiResponse<BusApiProperties>['features'][0]): Bus | null {
+  // COMMENTED OUT - OLD GEOSERVER API METHOD - Kept for future reference if needed
+  // private transformBusFromApi(feature: ApiResponse<BusApiProperties>['features'][0]): Bus | null {
+  //   const { properties, geometry } = feature;
+
+  //   if (geometry.type !== 'Point' || !Array.isArray(geometry.coordinates)) {
+  //     return null;
+  //   }
+
+  //   const [longitude, latitude] = geometry.coordinates as [number, number];
+
+  //   if (!properties.prefixo) {
+  //     return null;
+  //   }
+
+  //   return {
+  //     id: properties.prefixo,
+  //     prefixo: properties.prefixo,
+  //     linha: properties.cd_linha || properties.linha || properties.servico || '',
+  //     latitude,
+  //     longitude,
+  //     velocidade: properties.velocidade ? Number(String(properties.velocidade).replace(',', '.')) : 0,
+  //     sentido: properties.sentido || '',
+  //     datalocal: properties.datalocal || '',
+  //     dataregistro: properties.dataregistro || '',
+  //     tarifa: properties.tarifa,
+  //     active: Boolean(properties.cd_linha || properties.prefixo),
+  //   };
+  // }
+
+  private isBusInBounds(bus: Bus, bounds?: MapBounds): boolean {
+    if (!bounds) return true;
+    const { latitude, longitude } = bus;
+    if (latitude == null || longitude == null) return false;
+
+    const south = Math.min(bounds.south, bounds.north);
+    const north = Math.max(bounds.south, bounds.north);
+    const west = Math.min(bounds.west, bounds.east);
+    const east = Math.max(bounds.west, bounds.east);
+
+    if ([south, north, west, east].some(v => !isFinite(v))) return true;
+    if (east === west || north === south) return true; // degenerate box: skip filtering
+
+    return (
+      latitude >= south &&
+      latitude <= north &&
+      longitude >= west &&
+      longitude <= east
+    );
+  }
+
+  /**
+   * Transform bus data from the new API format
+   */
+  private transformBusFromNewApi(feature: NewBusApiResponse['features'][0], operatorName: string): Bus | null {
     const { properties, geometry } = feature;
 
     if (geometry.type !== 'Point' || !Array.isArray(geometry.coordinates)) {
+      // console.log('Invalid geometry:', geometry);
       return null;
     }
 
-    const [longitude, latitude] = geometry.coordinates as [number, number];
+    const [longitude, latitude] = geometry.coordinates;
 
-    if (!properties.prefixo) {
+    if (!properties.veiculo?.prefixo) {
+      // console.log('Missing prefixo:', properties);
       return null;
     }
 
-    return {
-      id: properties.prefixo,
-      prefixo: properties.prefixo,
-      linha: properties.cd_linha || properties.linha || properties.servico || '',
+
+
+    const transformedBus = {
+      id: properties.veiculo.prefixo,
+      prefixo: properties.veiculo.prefixo,
+      linha: properties.veiculo.numero || '', // Changed from 'linha' to 'numero'
       latitude,
       longitude,
       velocidade: properties.velocidade ? Number(String(properties.velocidade).replace(',', '.')) : 0,
-      sentido: properties.sentido || '',
+      sentido: properties.veiculo.sentido || '',
       datalocal: properties.datalocal || '',
-      dataregistro: properties.dataregistro || '',
-      tarifa: properties.tarifa,
-      active: Boolean(properties.cd_linha || properties.prefixo),
+      dataregistro: '', // Not available in new API
+      tarifa: undefined, // Not available in new API
+      active: Boolean(properties.veiculo.prefixo),
     };
+
+    // Log first few buses for debugging
+    // if (Math.random() < 0.001) { // Log ~0.1% of buses
+    //   console.log('Transformed bus sample:', transformedBus);
+    // }
+
+    return transformedBus;
   }
 
   private transformStopFromApi(feature: ApiResponse<StopApiProperties>['features'][0]): BusStop | null {
