@@ -1,13 +1,16 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import {
   Camera,
+  CircleLayer,
   Images,
   LineLayer,
   MapView,
   PointAnnotation,
-  ShapeSource
+  ShapeSource,
+  SymbolLayer
 } from '@maplibre/maplibre-react-native';
 import * as Location from 'expo-location';
+import type { Feature, FeatureCollection, Point } from 'geojson';
 import React, { useCallback, useMemo, useState } from 'react';
 import { Animated, Easing, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useBusFavorites, useStopFavorites } from '../hooks/useFavorites';
@@ -63,6 +66,15 @@ interface MapLibreBasicProps {
   onBusMarkerPress?: (bus: BusMarker) => void;
 }
 
+type TrafficLabelProperties = {
+  id: string;
+  color: string;
+  speedText: string;
+};
+
+type TrafficLabelFeature = Feature<Point, TrafficLabelProperties>;
+type TrafficLabelCollection = FeatureCollection<Point, TrafficLabelProperties>;
+
 const mapStyles = {
   light: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
   dark: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
@@ -104,6 +116,11 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
   // User speed and direction
   const [userSpeed, setUserSpeed] = useState<number | null>(null);
   const [userHeading, setUserHeading] = useState<number | null>(null);
+
+  // Debug logging
+  // useEffect(() => {
+  //   console.log(`MapLibre - Received ${buses?.length || 0} buses, zoom: ${currentZoom.toFixed(1)}`);
+  // }, [buses, currentZoom]);
 
   // Function to toggle favorite for selected bus
   const toggleFavorite = useCallback(() => {
@@ -176,6 +193,54 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
     };
   }, [traffic]);
 
+  const trafficLabelGeoJSON = React.useMemo<TrafficLabelCollection>(() => {
+    const emptyCollection: TrafficLabelCollection = {
+      type: 'FeatureCollection',
+      features: [],
+    };
+
+    if (!traffic || traffic.length === 0) {
+      return emptyCollection;
+    }
+
+    const features: TrafficLabelFeature[] = traffic
+      .filter(jam =>
+        !jam.pattern &&
+        Array.isArray(jam.lines) &&
+        jam.lines.length > 0 &&
+        jam.lines.every(coord =>
+          Array.isArray(coord) &&
+          coord.length === 2 &&
+          typeof coord[0] === 'number' &&
+          typeof coord[1] === 'number'
+        )
+      )
+      .map(jam => {
+        const mid = Math.floor(jam.lines.length / 2);
+        const coordinate = jam.lines[mid] as [number, number];
+
+        const feature: TrafficLabelFeature = {
+          type: 'Feature',
+          geometry: {
+            type: 'Point',
+            coordinates: coordinate,
+          },
+          properties: {
+            id: String(jam.id ?? `${jam.street}-${mid}`),
+            color: jam.color ?? '#FF9800',
+            speedText: `${Math.round(jam.speedKMH ?? 0)} km/h`,
+          },
+        };
+
+        return feature;
+      });
+
+    return {
+      type: 'FeatureCollection',
+      features,
+    };
+  }, [traffic]);
+
   // Atualiza o zoom quando a prop muda (ao recentralizar)
   React.useEffect(() => {
     if (zoom !== undefined) {
@@ -186,7 +251,11 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
   // Handle region change
   const handleRegionDidChange = async (event: any) => {
     if (onRegionDidChange && event && event.properties && event.properties.visibleBounds) {
-      const [[west, south], [east, north]] = event.properties.visibleBounds;
+      const [[lng1, lat1], [lng2, lat2]] = event.properties.visibleBounds;
+      const west = Math.min(lng1, lng2);
+      const east = Math.max(lng1, lng2);
+      const south = Math.min(lat1, lat2);
+      const north = Math.max(lat1, lat2);
       // Extract center and zoom from event
       const center = event.geometry?.coordinates
         ? { longitude: event.geometry.coordinates[0], latitude: event.geometry.coordinates[1] }
@@ -329,7 +398,9 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
         onRegionDidChange={handleRegionDidChange}
       >
         {/* Line pattern of line to closed roads */}
-        <Images images={{ 'yellow-black': yellowBlackStripes }} />
+        <Images images={{
+          'yellow-black': yellowBlackStripes,
+        }} />
 
         {latitude !== undefined && longitude !== undefined && zoom !== undefined ? (
           <Camera
@@ -398,6 +469,52 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
                 lineOpacity: 0.8,
                 lineCap: 'round',
                 lineJoin: 'round',
+              }}
+            />
+          </ShapeSource>
+        )}
+
+        {/* Traffic labels */}
+        {showTraffic && currentZoom >= 14 && trafficLabelGeoJSON.features.length > 0 && (
+          <ShapeSource
+            id="traffic-labels-source"
+            shape={trafficLabelGeoJSON}
+          >
+            <CircleLayer
+              id="traffic-labels-background"
+              style={{
+                circleColor: ['coalesce', ['get', 'color'], '#FF9800'],
+                circleOpacity: 0.92,
+                circleRadius: [
+                  'interpolate',
+                  ['linear'],
+                  ['zoom'],
+                  14, 12,
+                  18, 16,
+                ],
+                circleStrokeColor: appTheme === 'dark' ? '#111' : '#ffffff',
+                circleStrokeWidth: 1.2,
+                circleSortKey: 1,
+              }}
+            />
+            <SymbolLayer
+              id="traffic-labels-text"
+              style={{
+                textField: ['get', 'speedText'],
+                textSize: [
+                  'interpolate',
+                  ['linear'],
+                  ['zoom'],
+                  14, 12,
+                  18, 14,
+                ],
+                textColor: appTheme === 'dark' ? '#101010' : '#111111',
+                textHaloColor: '#ffffff',
+                textHaloWidth: 1.5,
+                textAllowOverlap: true,
+                textIgnorePlacement: true,
+                textAnchor: 'center',
+                textJustify: 'center',
               }}
             />
           </ShapeSource>
@@ -478,7 +595,7 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
         })}
 
         {/* Bus markers */}
-        {currentZoom >= 13 && buses && buses.map((bus: BusMarker) => {
+        {currentZoom >= 13.4 && buses && buses.map((bus: BusMarker) => {
           const isFavoriteBus = isBusFavorite(bus.linha ?? '');
           const color = bus.corOperadora || '#5a4799';
           return (

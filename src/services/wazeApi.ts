@@ -65,7 +65,7 @@ class WazeTrafficService {
       return null;
     }
 
-    const isClosed = jam.blockType === 'ROAD_CLOSED_EVENT';
+    const isClosed = jam.blockType === 'ROAD_CLOSED_EVENT' || jam.type === 'NONE' && jam.speedKMH === 0;
 
     return {
       id,
