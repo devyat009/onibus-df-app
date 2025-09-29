@@ -488,7 +488,7 @@ export default function Index() {
                 setPanelState(2);
                 setPanelOpen(true);
               }
-              console.log('Bus stop clicked on map:', fullStop);
+              // console.log('Bus stop clicked on map:', fullStop);
             } else {
               Alert.alert("Parada", marker.title || marker.id);
             }

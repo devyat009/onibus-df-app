@@ -1,14 +1,17 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import {
   Camera,
+  CircleLayer,
   Images,
   LineLayer,
   MapView,
   PointAnnotation,
-  ShapeSource
+  ShapeSource,
+  SymbolLayer
 } from '@maplibre/maplibre-react-native';
 import * as Location from 'expo-location';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import type { Feature, FeatureCollection, Point } from 'geojson';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Animated, Easing, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useBusFavorites, useStopFavorites } from '../hooks/useFavorites';
 import { useTrafficData } from '../hooks/useTrafficData';
@@ -63,6 +66,15 @@ interface MapLibreBasicProps {
   onBusMarkerPress?: (bus: BusMarker) => void;
 }
 
+type TrafficLabelProperties = {
+  id: string;
+  color: string;
+  speedText: string;
+};
+
+type TrafficLabelFeature = Feature<Point, TrafficLabelProperties>;
+type TrafficLabelCollection = FeatureCollection<Point, TrafficLabelProperties>;
+
 const mapStyles = {
   light: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
   dark: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
@@ -106,9 +118,9 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
   const [userHeading, setUserHeading] = useState<number | null>(null);
 
   // Debug logging
-  useEffect(() => {
-    console.log(`MapLibre - Received ${buses?.length || 0} buses, zoom: ${currentZoom.toFixed(1)}`);
-  }, [buses, currentZoom]);
+  // useEffect(() => {
+  //   console.log(`MapLibre - Received ${buses?.length || 0} buses, zoom: ${currentZoom.toFixed(1)}`);
+  // }, [buses, currentZoom]);
 
   // Function to toggle favorite for selected bus
   const toggleFavorite = useCallback(() => {
@@ -181,25 +193,52 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
     };
   }, [traffic]);
 
-  const trafficLabelPoints = React.useMemo(() => {
-    if (!traffic || traffic.length === 0) return [];
-    return traffic
+  const trafficLabelGeoJSON = React.useMemo<TrafficLabelCollection>(() => {
+    const emptyCollection: TrafficLabelCollection = {
+      type: 'FeatureCollection',
+      features: [],
+    };
+
+    if (!traffic || traffic.length === 0) {
+      return emptyCollection;
+    }
+
+    const features: TrafficLabelFeature[] = traffic
       .filter(jam =>
         !jam.pattern &&
         Array.isArray(jam.lines) &&
         jam.lines.length > 0 &&
-        jam.lines.every(c => Array.isArray(c) && c.length === 2 && typeof c[0] === 'number' && typeof c[1] === 'number')
+        jam.lines.every(coord =>
+          Array.isArray(coord) &&
+          coord.length === 2 &&
+          typeof coord[0] === 'number' &&
+          typeof coord[1] === 'number'
+        )
       )
       .map(jam => {
         const mid = Math.floor(jam.lines.length / 2);
-        const coord = jam.lines[mid] as [number, number]; // [lon, lat]
-        return {
-          id: String(jam.id ?? `${jam.street}-${mid}`),
-          coordinate: coord,
-          color: jam.color,
-          speedText: `${Math.round(jam.speedKMH ?? 0)} km/h`,
+        const coordinate = jam.lines[mid] as [number, number];
+
+        const feature: TrafficLabelFeature = {
+          type: 'Feature',
+          geometry: {
+            type: 'Point',
+            coordinates: coordinate,
+          },
+          properties: {
+            id: String(jam.id ?? `${jam.street}-${mid}`),
+            color: jam.color ?? '#FF9800',
+            speedText: `${Math.round(jam.speedKMH ?? 0)} km/h`,
+          },
         };
+
+        return feature;
       });
+
+    return {
+      type: 'FeatureCollection',
+      features,
+    };
   }, [traffic]);
 
   // Atualiza o zoom quando a prop muda (ao recentralizar)
@@ -436,31 +475,50 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
         )}
 
         {/* Traffic labels */}
-        {showTraffic && currentZoom >= 14 && trafficLabelPoints.length > 0 && trafficLabelPoints.map(lbl => (
-          <PointAnnotation
-            key={`traffic-label-${lbl.id}`}
-            id={`traffic-label-${lbl.id}`}
-            coordinate={lbl.coordinate}
+        {showTraffic && currentZoom >= 14 && trafficLabelGeoJSON.features.length > 0 && (
+          <ShapeSource
+            id="traffic-labels-source"
+            shape={trafficLabelGeoJSON}
           >
-            <View
-              pointerEvents="none"
+            <CircleLayer
+              id="traffic-labels-background"
               style={{
-                backgroundColor: lbl.color,
-                borderRadius: 6,
-                paddingHorizontal: 6,
-                paddingVertical: 2,
-                borderWidth: 1,
-                elevation: 100,
-                zIndex: 100,
-                marginLeft: 25,
+                circleColor: ['coalesce', ['get', 'color'], '#FF9800'],
+                circleOpacity: 0.92,
+                circleRadius: [
+                  'interpolate',
+                  ['linear'],
+                  ['zoom'],
+                  14, 12,
+                  18, 16,
+                ],
+                circleStrokeColor: appTheme === 'dark' ? '#111' : '#ffffff',
+                circleStrokeWidth: 1.2,
+                circleSortKey: 1,
               }}
-            >
-              <Text style={{ color: '#222', fontSize: 12, fontWeight: '600' }}>
-                {lbl.speedText}
-              </Text>
-            </View>
-          </PointAnnotation>
-        ))}
+            />
+            <SymbolLayer
+              id="traffic-labels-text"
+              style={{
+                textField: ['get', 'speedText'],
+                textSize: [
+                  'interpolate',
+                  ['linear'],
+                  ['zoom'],
+                  14, 12,
+                  18, 14,
+                ],
+                textColor: appTheme === 'dark' ? '#101010' : '#111111',
+                textHaloColor: '#ffffff',
+                textHaloWidth: 1.5,
+                textAllowOverlap: true,
+                textIgnorePlacement: true,
+                textAnchor: 'center',
+                textJustify: 'center',
+              }}
+            />
+          </ShapeSource>
+        )}
 
         {/* User location marker */}
         {userLocation && (

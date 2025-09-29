@@ -158,17 +158,17 @@ class ApiService {
 
     const timeFilteredBuses = filterActiveBusesRecent(allBuses, filterToUse);
     if (bounds) {
-      console.log('Bounds filter:', bounds);
-      console.log('Buses before bounds filter:', timeFilteredBuses.length);
+      // console.log('Bounds filter:', bounds);
+      // console.log('Buses before bounds filter:', timeFilteredBuses.length);
     }
     const inViewBuses = bounds
       ? timeFilteredBuses.filter(bus => this.isBusInBounds(bus, bounds))
       : timeFilteredBuses;
     if (bounds) {
-      console.log('Buses after bounds filter:', inViewBuses.length);
+      // console.log('Buses after bounds filter:', inViewBuses.length);
       if (inViewBuses.length === 0 && timeFilteredBuses.length > 0) {
         const sample = timeFilteredBuses[0];
-        console.log('Sample bus coords:', { lat: sample.latitude, lng: sample.longitude });
+        // console.log('Sample bus coords:', { lat: sample.latitude, lng: sample.longitude });
       }
     }
 
@@ -212,7 +212,7 @@ class ApiService {
         }
       });
 
-      console.log(`Total buses fetched from new API: ${allBuses.length}`);
+      // console.log(`Total buses fetched from new API: ${allBuses.length}`);
       return allBuses;
     } catch (error: any) {
       if (error instanceof ApiError) {

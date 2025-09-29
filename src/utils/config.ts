@@ -8,6 +8,10 @@ export const config: AppConfig = {
     geoserverUrl: 'http://geoserver.semob.df.gov.br/geoserver/semob/ows',
     endpoints: {
       buses: '/posicao',
+      stops2: '/paradas',
+      horario2: '/horario',
+      operadora: '/operadora',
+      lines2: '/linhas',
       stops: 'service=WFS&version=1.0.0&request=GetFeature&typeName=semob%3AParadas%20de%20onibus&outputFormat=application%2Fjson&maxFeatures=200',
       lines: 'service=WFS&version=1.0.0&request=GetFeature&typeName=semob%3ALinhas%20de%20onibus&outputFormat=application%2Fjson',
       frota: 'service=WFS&version=1.0.0&request=GetFeature&typeName=semob%3AFrota%20por%20Operadora&outputFormat=application%2Fjson',

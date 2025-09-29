@@ -237,10 +237,14 @@ export interface AppConfig {
     geoserverUrl?: string;
     endpoints: {
       buses: string;
-      stops: string;  
+      stops: string;
+      stops2: string;
       lines: string;
+      lines2: string; 
       frota: string;
+      operadora: string;
       horario: string;
+      horario2: string;
     };
   };
   cache: {
