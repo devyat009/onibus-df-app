@@ -5,13 +5,13 @@ import { BusStop, StopSchedule } from '@/src/types';
 import { MaterialIcons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import SkeletonPlaceholder from '../common/SkeletonPlaceholder';
 
 interface StopDetailProps {
   stop: BusStop;
@@ -100,47 +100,49 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
   };
 
   if (loading) {
+    const isDark = appTheme === 'dark';
+
     return (
-      <View style={[styles.container, { backgroundColor: appTheme === 'dark' ? '#000' : '#fff' }]}>
+      <View style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]}> 
         <View style={styles.header}>
           <TouchableOpacity onPress={onBack} style={styles.backButton}>
             <MaterialIcons
               name="arrow-back"
               size={24}
-              color={appTheme === 'dark' ? '#fff' : '#000'}
+              color={isDark ? '#fff' : '#000'}
             />
           </TouchableOpacity>
           <View style={styles.headerInfo}>
-            <Text style={[styles.headerTitle, { color: appTheme === 'dark' ? '#fff' : '#000' }]}>
-              {stop.nome || stop.descricao}
-            </Text>
-            <Text style={[styles.headerSubtitle, { color: appTheme === 'dark' ? '#aaa' : '#666' }]}>
-              Código: {stop.codigo}
-            </Text>
+            <SkeletonPlaceholder width="70%" height={18} isDark={isDark} />
+            <SkeletonPlaceholder width="45%" height={14} style={{ marginTop: 6 }} isDark={isDark} />
           </View>
-          <TouchableOpacity
-            onPress={handleToggleFavorite}
-            style={[
-              styles.favoriteButton,
-              isCurrentStopFavorite
-                ? { backgroundColor: '#FFD600', borderColor: '#FFD600' }
-                : { backgroundColor: 'transparent', borderColor: '#007AFF', borderWidth: 2 }
-            ]}
-            activeOpacity={0.7}
-          >
-            <MaterialIcons
-              name={isCurrentStopFavorite ? "bookmark" : "bookmark-outline"}
-              size={28}
-              color={isCurrentStopFavorite ? '#fff' : '#007AFF'}
-            />
-          </TouchableOpacity>
+          <SkeletonPlaceholder width={40} height={40} borderRadius={20} isDark={isDark} />
         </View>
-        <View style={styles.centerContent}>
-          <ActivityIndicator size="large" color="#007AFF" />
-          <Text style={[styles.loadingText, { color: appTheme === 'dark' ? '#aaa' : '#666' }]}>
-            Buscando horários...
-          </Text>
-        </View>
+
+        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+          {Array.from({ length: 4 }).map((_, index) => (
+            <View
+              key={`skeleton-line-${index}`}
+              style={{
+                padding: 12,
+                borderRadius: 12,
+                marginBottom: 12,
+                borderWidth: 1,
+                borderColor: isDark ? '#222' : '#eee',
+                backgroundColor: isDark ? '#131313' : '#f6f7f8',
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
+                <SkeletonPlaceholder width={32} height={32} borderRadius={8} isDark={isDark} />
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <SkeletonPlaceholder width="50%" height={16} isDark={isDark} />
+                  <SkeletonPlaceholder width="35%" height={14} style={{ marginTop: 6 }} isDark={isDark} />
+                </View>
+              </View>
+              <SkeletonPlaceholder width="100%" height={44} borderRadius={10} isDark={isDark} />
+            </View>
+          ))}
+        </ScrollView>
       </View>
     );
   }

@@ -5,6 +5,7 @@ import { apiService } from '../../services/api';
 import { wazeTrafficService } from '../../services/wazeApi';
 import { useAppStore } from '../../store';
 import { clearAllCache } from '../../utils/cacheManager';
+import SkeletonPlaceholder from '../common/SkeletonPlaceholder';
 
 type UrlKey = 'buses' | 'stops' | 'lines' | 'frota' | 'busesEnhanced' | 'wazeTraffic';
 interface UrlItem {
@@ -199,15 +200,24 @@ const DeveloperOptions = () => {
                 )}
               </View>
               <View style={styles.statusContainer}>
-                <Text style={{
-                  color: results[key] === 'success' ? '#4CAF50' : results[key] === 'error' ? '#F44336' : (appTheme === 'dark' ? '#ccc' : '#888'),
-                  fontSize: 12,
-                  textAlign: 'right',
-                }}>
-                  {results[key] === 'success' && logs[key]}
-                  {results[key] === 'error' && 'Erro'}
-                  {results[key] === 'loading' && 'Loading...'}
-                </Text>
+                {results[key] === 'loading' ? (
+                  <View style={{ width: 120, alignItems: 'flex-end' }}>
+                    <SkeletonPlaceholder
+                      width="80%"
+                      height={12}
+                      isDark={appTheme === 'dark'}
+                    />
+                  </View>
+                ) : (
+                  <Text style={{
+                    color: results[key] === 'success' ? '#4CAF50' : results[key] === 'error' ? '#F44336' : (appTheme === 'dark' ? '#ccc' : '#888'),
+                    fontSize: 12,
+                    textAlign: 'right',
+                  }}>
+                    {results[key] === 'success' && logs[key]}
+                    {results[key] === 'error' && 'Erro'}
+                  </Text>
+                )}
                 {results[key] === 'error' && (
                   <TouchableOpacity onPress={() => alert(logs[key])}>
                     <Text style={[styles.logLink, { color: appTheme === 'dark' ? '#ff6b6b' : '#c30505' }]}>Ver log</Text>

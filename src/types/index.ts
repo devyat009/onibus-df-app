@@ -8,6 +8,7 @@ export interface Bus {
   longitude: number;
   velocidade: number;
   sentido: string;
+  direcao?: string;
   datalocal: string;
   dataregistro?: string;
   tarifa?: number;
@@ -154,6 +155,7 @@ export interface BusApiProperties {
   servico?: string;
   velocidade: number;
   sentido?: string;
+  direcao?: string;
   datalocal: string;
   dataregistro?: string;
   tarifa?: number;
@@ -230,21 +232,23 @@ export interface HorarioApiProperties {
   dt_final_vigencia?: string;
 }
 
-// App configuration
+// App configuration - geo is different than dados 
 export interface AppConfig {
   api: {
     baseUrl: string;
     geoserverUrl?: string;
     endpoints: {
-      buses: string;
-      stops: string;
-      stops2: string;
-      lines: string;
-      lines2: string; 
-      frota: string;
-      operadora: string;
-      horario: string;
-      horario2: string;
+      geoOnibusPosicao: string;
+      geoParadas: string;
+      geoLinhasEspaciais: string;
+      geoFrotaOperadora: string;
+      geoHorario: string;
+      dadosOnibusPosicao: string;
+      dadosParadas: string;
+      dadosOperadora: string;
+      dadosLinhasEspaciais: string; 
+      dadosHorario: string;
+      dadosNumeros: string;
     };
   };
   cache: {
