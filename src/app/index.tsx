@@ -501,6 +501,37 @@ export default function Index() {
           buses={buses}
           onBusMarkerPress={(bus) => Alert.alert("Ônibus", bus.title || bus.id)}
         />
+        {/* skeleton loading in main map */}
+        {/* {(loading.buses || loading.stops || !initialized) && (
+          <View
+            pointerEvents="none"
+            style={[
+              styles.mapSkeletonOverlay,
+              {
+                backgroundColor: appTheme === 'dark' ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.82)',
+              },
+            ]}
+          >
+            <SkeletonPlaceholder width="60%" height={20} isDark={appTheme === 'dark'} />
+            <SkeletonPlaceholder
+              width="42%"
+              height={14}
+              style={{ marginTop: 12 }}
+              isDark={appTheme === 'dark'}
+            />
+            <View style={styles.mapSkeletonRow}>
+              {Array.from({ length: 3 }).map((_, index) => (
+                <SkeletonPlaceholder
+                  key={`map-skeleton-card-${index}`}
+                  width="28%"
+                  height={78}
+                  borderRadius={16}
+                  isDark={appTheme === 'dark'}
+                />
+              ))}
+            </View>
+          </View>
+        )} */}
       </Animated.View>
 
       {!panelOpen && (
@@ -739,6 +770,24 @@ const styles = StyleSheet.create({
   mapContainer: {
     flex: 1,
     padding: 8,
+  },
+  mapSkeletonOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 15,
+    paddingHorizontal: 24,
+    paddingVertical: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  mapSkeletonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+    marginTop: 28,
   },
   // buttons config e local
   topRightButtons: {

@@ -13,6 +13,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import SkeletonPlaceholder from "../common/SkeletonPlaceholder";
 import StopDetail from "./stopDetail.component";
 
 interface StopsPainelMenuBasicProps {
@@ -26,12 +27,14 @@ const StopsPainelMenu: React.FC<StopsPainelMenuBasicProps> = ({
   onStopSelected,
 }) => {
   const appTheme = useAppStore((state) => state.appTheme);
+  const loading = useAppStore((state) => state.loading);
   const [activeTab, setActiveTab] = React.useState<"nearby" | "favorites">(
     "nearby"
   );
   const [selectedStop, setSelectedStop] = React.useState<BusStop | null>(null);
   const [busLines, setBusLines] = React.useState<any[]>([]);
-  const [busHorarios, setBusHorarios] = React.useState<any[]>([]);
+  const [loadingLines, setLoadingLines] = React.useState(true);
+  const [loadingHorarios, setLoadingHorarios] = React.useState(true);
 
   // Tab state
   const isNearbyActive = activeTab === "nearby";
@@ -44,8 +47,16 @@ const StopsPainelMenu: React.FC<StopsPainelMenuBasicProps> = ({
   // Get horarios from cache
   useEffect(() => {
     async function fetchHorariosFromCache() {
-      const horarios = await getCacheData(CACHE_KEYS.BUS_HORARIO);
-      setBusHorarios(Array.isArray(horarios) ? horarios : []);
+      setLoadingHorarios(true);
+      try {
+        const horarios = await getCacheData(CACHE_KEYS.BUS_HORARIO);
+        // Horários são carregados apenas para garantir que o cache esteja pronto para detalhes
+        if (!Array.isArray(horarios)) {
+          return;
+        }
+      } finally {
+        setLoadingHorarios(false);
+      }
     }
 
     fetchHorariosFromCache();
@@ -56,8 +67,13 @@ const StopsPainelMenu: React.FC<StopsPainelMenuBasicProps> = ({
 
   useEffect(() => {
     async function fetchLinesFromCache() {
-      const lines = await getCacheData(CACHE_KEYS.LINES);
-      setBusLines(Array.isArray(lines) ? lines : []);
+      setLoadingLines(true);
+      try {
+        const lines = await getCacheData(CACHE_KEYS.LINES);
+        setBusLines(Array.isArray(lines) ? lines : []);
+      } finally {
+        setLoadingLines(false);
+      }
     }
     fetchLinesFromCache();
   }, []);
@@ -88,6 +104,48 @@ const StopsPainelMenu: React.FC<StopsPainelMenuBasicProps> = ({
 
   // Helper function to render stops list
   const renderStopsList = () => {
+    const isDark = appTheme === "dark";
+    const isLoading =
+      loading.stops ||
+      loadingLines ||
+      loadingHorarios;
+
+    if (isLoading) {
+      return (
+        <View style={{ paddingHorizontal: 16, paddingVertical: 12 }}>
+          {Array.from({ length: 5 }).map((_, index) => (
+            <View
+              key={`skeleton-stop-${index}`}
+              style={
+                {
+                  marginBottom: 12,
+                  borderRadius: 12,
+                  padding: 16,
+                  borderWidth: 1,
+                  borderColor: isDark ? "#222" : "#ededed",
+                  backgroundColor: isDark ? "#121212" : "#f7f8f9",
+                }
+              }
+            >
+              <SkeletonPlaceholder width="55%" height={18} isDark={isDark} />
+              <SkeletonPlaceholder
+                width="35%"
+                height={14}
+                style={{ marginTop: 8 }}
+                isDark={isDark}
+              />
+              <SkeletonPlaceholder
+                width="80%"
+                height={12}
+                style={{ marginTop: 14 }}
+                isDark={isDark}
+              />
+            </View>
+          ))}
+        </View>
+      );
+    }
+
     // Filtra as paradas conforme a tab ativa
     const filteredStops =
       isFavoritesActive
@@ -151,7 +209,7 @@ const StopsPainelMenu: React.FC<StopsPainelMenuBasicProps> = ({
           })
         ) : isFavoritesActive ? (
           <Text style={{ padding: 16, color: "#888" }}>Nenhuma parada favorita encontrada.</Text>
-        ) : isNearbyActive && busLines.length === 0 ? (
+        ) : isNearbyActive && isLoading ? (
           <Text style={{ padding: 16, color: "#888" }}>Carregando linhas...</Text>
         ) : isNearbyActive ? (
           <Text style={{ padding: 16, color: "#888" }}>Nenhuma parada próxima encontrada, aproxime mais o mapa.</Text>
