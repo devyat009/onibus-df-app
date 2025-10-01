@@ -50,12 +50,12 @@ export interface TrafficAlert {
 
 export interface BusStop {
   id: string;
-  codigo: string;
+  codigo: number;
   nome: string;
   descricao: string;
   latitude: number;
   longitude: number;
-  situacao?: string;
+  situacao?: boolean;
 }
 
 export interface BusLine {
@@ -79,6 +79,13 @@ export interface BusHorario {
   dia_label: string;
   dt_inicio_vigencia?: string;
   dt_final_vigencia?: string;
+}
+
+export interface BusHorarioV2 {
+  numero_linha: string;
+  sentido: string;
+  tempo_percurso: number;
+  horarios: string[];
 }
 
 export interface StopSchedule {
@@ -200,6 +207,17 @@ export interface StopApiProperties {
   tipo?: string;
 }
 
+export interface Stop2025ApiProperties {
+  id: string;
+  cod_parada_v2025: number;
+  latitude: number;
+  longitude: number;
+  endereco: string;
+  parada_ativa: boolean;
+  tipo_abrigo: string;
+}
+
+
 export interface LineApiProperties {
   cd_linha?: string;
   linha?: string;
@@ -232,6 +250,13 @@ export interface HorarioApiProperties {
   dt_final_vigencia?: string;
 }
 
+export interface HorarioV2Api {
+  numero: string;
+  sentido: string;
+  tempo_percurso: number;
+  horarios: string[];
+}
+
 // App configuration - geo is different than dados 
 export interface AppConfig {
   api: {
@@ -240,6 +265,7 @@ export interface AppConfig {
     endpoints: {
       geoOnibusPosicao: string;
       geoParadas: string;
+      geoParadas2025: string;
       geoLinhasEspaciais: string;
       geoFrotaOperadora: string;
       geoHorario: string;

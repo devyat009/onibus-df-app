@@ -90,6 +90,7 @@ export const CACHE_KEYS = {
   STOPS: 'bus_stops',
   BUSES: 'bus_positions',
   BUS_HORARIO: 'bus_hours',
+  BUS_HORARIO_V2: 'bus_hours_v2',
   FAVORITES_BUSES: 'favorites_buses',
   FAVORITES_STOPS: 'favorites_stops',
 } as const;

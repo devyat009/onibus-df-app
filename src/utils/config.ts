@@ -18,6 +18,7 @@ export const config: AppConfig = {
       // Geo endpoints
       geoOnibusPosicao: 'service=WFS&version=1.0.0&request=GetFeature&typeName=semob%3AÚltima posição da frota&outputFormat=application%2Fjson&maxFeatures=400',
       geoParadas: 'service=WFS&version=1.0.0&request=GetFeature&typeName=semob%3AParadas%20de%20onibus&outputFormat=application%2Fjson&maxFeatures=200',
+      geoParadas2025: 'service=WFS&version=1.0.0&request=GetFeature&typeName=semob%3APonto de paradas 2025&outputFormat=application%2Fjson',
       geoLinhasEspaciais: 'service=WFS&version=1.0.0&request=GetFeature&typeName=semob%3ALinhas%20de%20onibus&outputFormat=application%2Fjson',
       geoFrotaOperadora: 'service=WFS&version=1.0.0&request=GetFeature&typeName=semob%3AFrota%20por%20Operadora&outputFormat=application%2Fjson',
       geoHorario: 'service=WFS&version=1.0.0&request=GetFeature&typeName=semob%3AHorários%20das%20Linhas&outputFormat=application%2Fjson'

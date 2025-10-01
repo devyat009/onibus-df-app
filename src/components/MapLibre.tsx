@@ -124,7 +124,7 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
 
   // Function to toggle favorite for selected bus
   const toggleFavorite = useCallback(() => {
-    console.warn('selectedBus:', selectedBus);
+    //  console.warn('selectedBus:', selectedBus);
     if (!selectedBus?.linha) return;
     toggleBusFavorite(selectedBus.linha);
   }, [selectedBus?.linha, toggleBusFavorite]);

@@ -244,4 +244,5 @@ export const CACHE_KEYS = {
   STOPS: 'bus_stops',
   BUSES: 'bus_positions',
   BUS_HORARIO: 'bus_hours',
+  BUS_HORARIO_V2: 'bus_hours_v2',
 } as const;

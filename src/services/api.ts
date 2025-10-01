@@ -4,6 +4,7 @@ import {
   Bus,
   BusApiProperties,
   BusHorario,
+  BusHorarioV2,
   BusLine,
   BusStop,
   EnhancedBus,
@@ -11,10 +12,11 @@ import {
   FrotaApiProperties,
   FrotaOperadora,
   HorarioApiProperties,
+  HorarioV2Api,
   LineApiProperties,
   MapBounds,
   NewBusApiResponse,
-  StopApiProperties,
+  Stop2025ApiProperties,
   StopSchedule
 } from '../types';
 //import { CACHE_KEYS, CacheOptions, getCachedOrFetch } from '../utils/asyncStorage';
@@ -59,8 +61,12 @@ class ApiService {
         const minY = Math.min(bounds.south, bounds.north);
         const maxY = Math.max(bounds.south, bounds.north);
 
+        if (endpoint == appConfig.api.endpoints.geoParadas2025) {
+          url+= `&bbox=${minX},${minY},${maxX},${maxY}`;
+        } else {
         const bbox = `${minX},${minY},${maxX},${maxY},EPSG:4326`;
         url += `&bbox=${bbox}&srsName=EPSG:4326`;
+        }
       }
 
       const response = await fetch(url, {
@@ -346,22 +352,27 @@ class ApiService {
   }
 
   async getStops(bounds?: MapBounds): Promise<BusStop[]> {
-    let endpoint = appConfig.api.endpoints.geoParadas;
+    let endpoint = appConfig.api.endpoints.geoParadas2025;
 
     // Force EPSG:4326 output for stops
-    if (!endpoint.includes('srsName=')) {
-      endpoint += '&srsName=EPSG:4326';
-    }
+    // if (!endpoint.includes('srsName=')) {
+    //   endpoint += '&srsName=EPSG:4326';
+    // }
 
-    const response = await this.makeRequest<StopApiProperties>(
+    const response = await this.makeRequest<Stop2025ApiProperties>(
       endpoint,
       bounds,
       true // Use geoserver for stops
     );
 
     return response.features
-      .map(feature => this.transformStopFromApi(feature))
-      .filter((stop): stop is BusStop => !!stop && stop.situacao !== "DESATIVADA");
+      .map(feature => this.transformStop2025FromApi(feature))
+      .filter((stop): stop is BusStop => !!stop && stop.situacao !== false);
+
+    // old api
+    // return response.features
+    //   .map(feature => this.transformStopFromApi(feature))
+    //   .filter((stop): stop is BusStop => !!stop && stop.situacao !== "DESATIVADA");
   }
 
   async getLines(): Promise<BusLine[]> {
@@ -424,6 +435,14 @@ class ApiService {
     return getCachedOrFetch(
       CACHE_KEYS.BUS_HORARIO,
       () => this.getHorario(),
+      options
+    );
+  }
+
+  async getHorarioV2Cached(options?: CacheOptions): Promise<BusHorarioV2[]> {
+    return getCachedOrFetch(
+      CACHE_KEYS.BUS_HORARIO_V2,
+      () => this.getHorarioV2(),
       options
     );
   }
@@ -641,6 +660,33 @@ class ApiService {
       .filter(horario => horario !== null) as BusHorario[];
   }
 
+  async fetchHorarioV2(): Promise<BusHorarioV2[]> {
+    const response = await fetch(`${this.baseUrl}${appConfig.api.endpoints.dadosHorario}`, {
+      headers: {
+        'Accept': 'application/json',
+      },
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      throw new ApiError('API_ERROR', `HTTP ${response.status} - ${response.statusText}`, {
+        status: response.status,
+        statusText: response.statusText,
+        url: `${this.baseUrl}${appConfig.api.endpoints.dadosHorario}`,
+      });
+    }
+
+    // simple array, not GeoJSON
+    const data: HorarioV2Api[] = await response.json();
+
+    // Map to BusHorarioV2
+    return data.map(item => ({
+      numero_linha: item.numero,
+      sentido: item.sentido,
+      tempo_percurso: item.tempo_percurso || 0,
+      horarios: item.horarios || [],
+    }));
+  }
   private transformHorarioFromApi(feature: ApiResponse<HorarioApiProperties>['features'][0]): BusHorario | null {
     const { properties } = feature;
 
@@ -663,6 +709,14 @@ class ApiService {
     return getCachedOrFetch(
       CACHE_KEYS.BUS_HORARIO,
       () => this.fetchHorario(),
+      { ttl: 30 * 60 * 1000 } // 30 minutes default TTL for horario
+    );
+  }
+
+  async getHorarioV2(): Promise<BusHorarioV2[]> {
+    return getCachedOrFetch(
+      CACHE_KEYS.BUS_HORARIO_V2,
+      () => this.fetchHorarioV2(),
       { ttl: 30 * 60 * 1000 } // 30 minutes default TTL for horario
     );
   }
@@ -774,40 +828,70 @@ class ApiService {
     return transformedBus;
   }
 
-  private transformStopFromApi(feature: ApiResponse<StopApiProperties>['features'][0]): BusStop | null {
+  // private transformStopFromApi(feature: ApiResponse<StopApiProperties>['features'][0]): BusStop | null {
+  //   const { properties, geometry } = feature;
+
+  //   if (geometry.type !== 'Point' || !Array.isArray(geometry.coordinates)) {
+  //     return null;
+  //   }
+  //   let [rawX, rawY] = geometry.coordinates as [number, number];
+  //   let latitude: number;
+  //   let longitude: number;
+
+  //   // Detect UTM (EPSG:31983 – SIRGAS 2000 / UTM zone 23S)
+  //   const looksLikeUtm = rawX > 100000 && rawX < 400000 && rawY > 8_000_000 && rawY < 9_200_000; // heuristic
+  //   if (looksLikeUtm) {
+  //     const { lat, lng } = this.utmToLatLngZone23S(rawX, rawY);
+  //     latitude = lat;
+  //     longitude = lng;
+  //   } else {
+  //     // Already lon/lat
+  //     longitude = rawX;
+  //     latitude = rawY;
+  //   }
+
+  //   // Validate plausible region (Central Brazil / DF)
+  //   if (isNaN(latitude) || isNaN(longitude) || latitude < -35 || latitude > 10 || longitude < -75 || longitude > -25) {
+  //     // Fallback: skip invalid
+  //     return null;
+  //   }
+
+  //   const codigo = properties.parada || properties.cd_parada || properties.codigo || properties.id || '';
+  //   const nome = properties.descricao || properties.ds_ponto || properties.nm_parada || properties.nome || properties.ds_descricao || 'Parada de ônibus';
+  //   const situacao = properties.situacao || 'ATIVA'; // Default to active if not specified
+
+  //   return {
+  //     id: codigo || `${latitude}-${longitude}`,
+  //     codigo,
+  //     nome,
+  //     descricao: nome,
+  //     latitude,
+  //     longitude,
+  //     situacao,
+  //   };
+  // }
+
+  private transformStop2025FromApi(feature: ApiResponse<Stop2025ApiProperties>['features'][0]): BusStop | null {
     const { properties, geometry } = feature;
 
-    if (geometry.type !== 'Point' || !Array.isArray(geometry.coordinates)) {
+    if (geometry.type !== 'Point' || !properties.latitude || !properties.longitude) {
       return null;
     }
-    let [rawX, rawY] = geometry.coordinates as [number, number];
-    let latitude: number;
-    let longitude: number;
+    const latRaw = geometry.coordinates[1];
+    const lngRaw = geometry.coordinates[0];
 
-    // Detect UTM (EPSG:31983 – SIRGAS 2000 / UTM zone 23S)
-    const looksLikeUtm = rawX > 100000 && rawX < 400000 && rawY > 8_000_000 && rawY < 9_200_000; // heuristic
-    if (looksLikeUtm) {
-      const { lat, lng } = this.utmToLatLngZone23S(rawX, rawY);
-      latitude = lat;
-      longitude = lng;
-    } else {
-      // Already lon/lat
-      longitude = rawX;
-      latitude = rawY;
+    if (typeof latRaw !== 'number' || typeof lngRaw !== 'number') {
+        return null;
     }
 
-    // Validate plausible region (Central Brazil / DF)
-    if (isNaN(latitude) || isNaN(longitude) || latitude < -35 || latitude > 10 || longitude < -75 || longitude > -25) {
-      // Fallback: skip invalid
-      return null;
-    }
-
-    const codigo = properties.parada || properties.cd_parada || properties.codigo || properties.id || '';
-    const nome = properties.descricao || properties.ds_ponto || properties.nm_parada || properties.nome || properties.ds_descricao || 'Parada de ônibus';
-    const situacao = properties.situacao || 'ATIVA'; // Default to active if not specified
-
+    const latitude = latRaw;
+    const longitude = lngRaw;
+    const codigo = properties.cod_parada_v2025;
+    const nome = properties.endereco; // to do, improve name from old api
+    const situacao = properties.parada_ativa; // Default to active if not specified
+    
     return {
-      id: codigo || `${latitude}-${longitude}`,
+      id: `${codigo}`,
       codigo,
       nome,
       descricao: nome,
