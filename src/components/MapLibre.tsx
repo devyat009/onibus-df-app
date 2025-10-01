@@ -124,6 +124,7 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
 
   // Function to toggle favorite for selected bus
   const toggleFavorite = useCallback(() => {
+    console.warn('selectedBus:', selectedBus);
     if (!selectedBus?.linha) return;
     toggleBusFavorite(selectedBus.linha);
   }, [selectedBus?.linha, toggleBusFavorite]);
@@ -547,7 +548,7 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
           const isFavoriteStop = isStopFavorite(busStop.id);
           return (
             <PointAnnotation
-              key={busStop.id}
+              key={`${busStop.id}-${isFavoriteStop}`}
               id={busStop.id}
               coordinate={[busStop.longitude, busStop.latitude]}
               onSelected={() => onBusStopMarkerPress?.(busStop)}
@@ -560,6 +561,7 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
                   height: 45,
                   alignItems: 'center',
                   justifyContent: 'center',
+                  
                 }}
               >
                 {/* <BusStopIcon width={35} height={35} color="#007AFF" /> */}
@@ -580,8 +582,8 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
                   pointerEvents="none"
                   style={{
                     position: 'absolute',
-                    top: 1,
-                    right: 1,
+                    top: -1,
+                    right: 3,
                     backgroundColor: '#fff',
                     borderRadius: 7,
                     padding: 0.5,
@@ -601,7 +603,7 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
           const color = bus.corOperadora || '#5a4799';
           return (
             <PointAnnotation
-              key={bus.id}
+              key={`${bus.id}-${isFavoriteBus}`} // Add favorite state to key
               id={bus.id}
               coordinate={[bus.longitude, bus.latitude]}
               onSelected={() => handleBusSelect(bus)}
@@ -614,41 +616,34 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
                   height: 40,
                   alignItems: 'center',
                   justifyContent: 'center',
+                  overflow: 'visible',
                 }}
               >
                 <BusIcon width={30} height={30} color={color} />
-                {/* Placeholder for bus icon */}
-                {/* <View
-                  style={{
-                    width: 30,
-                    height: 30,
-                    backgroundColor: bus.corOperadora || '#5a4799',
-                    borderRadius: 15,
-                    borderWidth: 2,
-                    borderColor: '#fff',
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    shadowColor: '#000',
-                    shadowOpacity: 0.3,
-                    shadowRadius: 3,
-                    shadowOffset: { width: 0, height: 1 },
-                  }}
-                /> */}
                 <View
                   pointerEvents="none"
                   style={{
                     position: 'absolute',
-                    top: -5,
-                    right: 2,
+                    top: 4,
+                    right: 3,
                     backgroundColor: '#fff',
                     borderRadius: 8,
                     padding: 0.5,
                     opacity: isFavoriteBus ? 1 : 0,
                     overflow: 'visible',
                     elevation: 2,
+                    height: 14,
+                    width: 14,
+                    alignItems: 'center',
+                    justifyContent: 'center',
                   }}
                 >
-                  <MaterialIcons name="star" size={16} color="#FFD600" />
+                  <MaterialIcons name="star" size={14} color="#FFD600"
+                  style={{
+                    marginBottom: 1,
+                    marginRight: 1,
+                  }}
+                  />
                 </View>
               </View>
             </PointAnnotation>
@@ -756,7 +751,7 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
           { opacity: fadeAnim },
           { backgroundColor: appTheme === 'dark' ? '#333' : 'white' }
         ]}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <View style={styles.popupContent}>
             <View style={{ flex: 1 }}>
               <Text style={[styles.popupTitle, { color: appTheme === 'dark' ? '#fff' : '#333' }]}>
                 Linha {selectedBus.linha}
@@ -791,9 +786,10 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
                 styles.favoriteButton,
                 isFavorite
                   ? { backgroundColor: '#FFD600', borderColor: '#FFD600' }
-                  : { backgroundColor: 'transparent' }
+                  : { backgroundColor: 'transparent', borderColor: '#007AFF', borderWidth: 2 }
               ]}
               activeOpacity={0.7}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
               <MaterialIcons
                 name={isFavorite ? "bookmark" : "bookmark-outline"}
@@ -829,34 +825,31 @@ const styles = StyleSheet.create({
   },
   popupContent: {
     padding: 14,
-    backgroundColor: 'red'
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   popupTitle: {
     fontWeight: 'bold',
     fontSize: 16,
-    marginLeft: 6,
   },
   popupSubtitle: {
     fontSize: 12,
-    marginLeft: 6,
     marginTop: 4,
   },
   popupOperator: {
     fontSize: 13,
     marginTop: 4,
-    marginLeft: 6,
     fontWeight: '600',
   },
   popupInfo: {
     fontSize: 12,
     marginTop: 2,
-    marginLeft: 6,
   },
   popupTimestamp: {
     fontSize: 10,
     marginTop: 4,
     fontStyle: 'italic',
-    marginLeft: 6,
   },
   fetchBar: {
     position: 'absolute',
@@ -870,11 +863,12 @@ const styles = StyleSheet.create({
   },
   favoriteButton: {
     marginLeft: 12,
-    //borderWidth: 2,
     borderRadius: 20,
-    padding: 6,
+    padding: 8,
     alignItems: 'center',
     justifyContent: 'center',
+    minWidth: 44,
+    minHeight: 44,
   },
 });
 
