@@ -20,7 +20,7 @@ import { TrafficJam } from '../types';
 
 // Assets
 import yellowBlackStripes from '../assets/images/pattern/yellow-black.png';
-import BusStopIcon from '../assets/images/svg/bus-stop.svg';
+import BusStopIcon2 from '../assets/images/svg/bus-stop2.svg';
 import BusIcon from '../assets/images/svg/bus.svg';
 
 interface BusStopMarker {
@@ -556,13 +556,14 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
                 collapsable={false}
                 style={{
                   position: 'relative',
-                  width: 35,
-                  height: 35,
+                  width: 45,
+                  height: 45,
                   alignItems: 'center',
                   justifyContent: 'center',
                 }}
               >
-                <BusStopIcon width={35} height={35} color="#007AFF" />
+                {/* <BusStopIcon width={35} height={35} color="#007AFF" /> */}
+                <BusStopIcon2 width={45} height={45} style={{ marginTop: 4 }}/>
                 {/* Placeholder for bus stop icon */}
                 {/* <View
                   style={{
