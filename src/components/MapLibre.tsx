@@ -544,12 +544,12 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
         )}
 
         {/* Bus stop markers */}
-        {currentZoom >= 14 && busStopMarker.map((busStop: BusStopMarker) => {
+        {currentZoom >= 14 && busStopMarker.map((busStop: BusStopMarker, index: number) => {
           const isFavoriteStop = isStopFavorite(busStop.id);
           return (
             <PointAnnotation
-              key={`${busStop.id}-${isFavoriteStop}`}
-              id={busStop.id}
+              key={`bus-stop-${busStop.id}-${index}`}
+              id={`stop-${busStop.id}`}
               coordinate={[busStop.longitude, busStop.latitude]}
               onSelected={() => onBusStopMarkerPress?.(busStop)}
             >
@@ -598,13 +598,13 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
         })}
 
         {/* Bus markers */}
-        {currentZoom >= 13.4 && buses && buses.map((bus: BusMarker) => {
+        {currentZoom >= 13.4 && buses && buses.map((bus: BusMarker, index: number) => {
           const isFavoriteBus = isBusFavorite(bus.linha ?? '');
           const color = bus.corOperadora || '#5a4799';
           return (
             <PointAnnotation
-              key={`${bus.id}-${isFavoriteBus}`} // Add favorite state to key
-              id={bus.id}
+              key={`bus-${bus.id}-${index}`}
+              id={`bus-${bus.id}`}
               coordinate={[bus.longitude, bus.latitude]}
               onSelected={() => handleBusSelect(bus)}
             >

@@ -1,7 +1,7 @@
 import { useStopFavorites } from '@/src/hooks/useFavorites';
 import { apiService } from '@/src/services/api';
 import { useAppStore } from '@/src/store';
-import { BusStop, StopSchedule } from '@/src/types';
+import { BusStop, StopScheduleV2 } from '@/src/types';
 import { MaterialIcons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
 import {
@@ -20,7 +20,7 @@ interface StopDetailProps {
 
 const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
   const appTheme = useAppStore(state => state.appTheme);
-  const [scheduleData, setScheduleData] = useState<StopSchedule | null>(null);
+  const [scheduleData, setScheduleData] = useState<StopScheduleV2 | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,10 +41,11 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
     try {
       setLoading(true);
       setError(null);
-      const data = await apiService.getStopSchedule(stop);
+      const data = await apiService.getStopScheduleV2(stop);
+      console.log('[STOPDETAIL] Loaded stop schedule V2:', data);
       setScheduleData(data);
     } catch (err) {
-      console.error('Erro ao carregar horários da parada:', err);
+      console.error('Erro ao carregar horários da parada (loadStopSchedule):', err);
       setError('Erro ao carregar horários da parada');
     } finally {
       setLoading(false);
@@ -57,10 +58,11 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
         setLoading(true);
         setError(null);
 
-        const data = await apiService.getStopSchedule(stop);
+        const data = await apiService.getStopScheduleV2(stop);
+        console.warn('[STOPDETAIL2] Loaded stop schedule V2:', data);
         setScheduleData(data);
       } catch (err) {
-        console.error('Erro ao carregar horários da parada:', err);
+        console.error('Erro ao carregar horários da parada (loadData):', err);
         setError('Erro ao carregar horários da parada');
       } finally {
         setLoading(false);
@@ -74,29 +76,23 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
     return time.substring(0, 5); // Remove seconds if present
   };
 
-  const getCurrentDaySchedules = (schedules: any[]) => {
-    const now = new Date();
-    const currentDayIndex = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
-
-    return schedules.filter(schedule =>
-      schedule.dias_semana[currentDayIndex] === 'S'
-    );
-  };
-
-  const getNextSchedules = (schedules: any[], limit = 5) => {
+  const getNextSchedules = (horarios: string[], limit = 5) => {
     const now = new Date();
     const currentTime = now.getHours() * 60 + now.getMinutes();
 
-    const todaySchedules = getCurrentDaySchedules(schedules)
-      .map(schedule => {
-        const [hours, minutes] = schedule.hr_prevista.split(':').map(Number);
+    // horarios is now a simple array of time strings like ["06:00", "07:00", "08:00"]
+    // Filter out invalid entries first
+    const upcomingSchedules = horarios
+      .filter(timeStr => timeStr && typeof timeStr === 'string' && timeStr.includes(':'))
+      .map(timeStr => {
+        const [hours, minutes] = timeStr.split(':').map(Number);
         const scheduleTime = hours * 60 + minutes;
-        return { ...schedule, scheduleTime };
+        return { hr_prevista: timeStr, scheduleTime };
       })
-      .filter(schedule => schedule.scheduleTime > currentTime)
+      .filter(schedule => !isNaN(schedule.scheduleTime) && schedule.scheduleTime > currentTime)
       .sort((a, b) => a.scheduleTime - b.scheduleTime);
 
-    return todaySchedules.slice(0, limit);
+    return upcomingSchedules.slice(0, limit);
   };
 
   if (loading) {
@@ -235,8 +231,11 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {scheduleData && scheduleData.lines.length > 0 ? (
           scheduleData.lines.map((lineData, index) => {
-            const quantidadeHorarios = 1;
-            const nextSchedules = getNextSchedules(lineData.schedules, quantidadeHorarios);
+            const quantidadeHorarios = 3;
+            // Extract all horarios from all BusHorarioV2 objects for this line
+            const allHorarios = lineData.schedules.flatMap(schedule => schedule.horarios);
+            console.log(`[STOPDETAIL] Line ${lineData.line.numero} horarios:`, allHorarios);
+            const nextSchedules = getNextSchedules(allHorarios, quantidadeHorarios);
             return (
               <View
                 key={index}
@@ -252,7 +251,7 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
                   <MaterialIcons name="directions-bus" size={24} color="#007AFF" />
                   <View style={styles.lineInfo}>
                     <Text style={[styles.lineTitle, { color: appTheme === 'dark' ? '#fff' : '#000' }]}>
-                      Linha {lineData.line.codigo}
+                      Linha {lineData.line.numero}
                     </Text>
                   </View>
                   <View style={styles.schedulesContainer}>

@@ -100,7 +100,7 @@ const DeveloperOptions = () => {
           break;
 
         case 'lines':
-          data = await apiService.getLinesCached();
+          data = await apiService.getLinesV2Cached();
           break;
 
         case 'frota':

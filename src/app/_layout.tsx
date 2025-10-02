@@ -16,8 +16,8 @@ const RootLayout = () => {
   useEffect(() => {
     const fetchData = async () => {
       await Promise.all([
-        apiService.getLinesCached().catch(console.error),
-        apiService.getHorarioCached().catch(console.error),
+        apiService.getLinesV2Cached().catch(console.error),
+        apiService.getHorarioV2Cached().catch(console.error),
         apiService.getFrotaCached().catch(console.error),
       ]);
     };

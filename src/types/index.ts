@@ -58,6 +58,11 @@ export interface BusStop {
   situacao?: boolean;
 }
 
+export interface BusStopDados {
+  id: number;
+  linParadas: string[]; // Array of "numero - sentido" strings (e.g., "0.011 - CIRCULAR")
+}
+
 export interface BusLine {
   id: string;
   codigo: string;
@@ -65,6 +70,12 @@ export interface BusLine {
   servico: string;
   coordinates: [number, number][]; // [lng, lat] format
   tipo: 'LineString' | 'MultiLineString';
+}
+
+export interface BusLineV2 {
+  numero: string;
+  sentido: string;
+  geolinhas: { type: string; coordinates: [number, number][] }[];
 }
 
 export interface BusHorario {
@@ -93,6 +104,14 @@ export interface StopSchedule {
   lines: {
     line: BusLine;
     schedules: BusHorario[];
+  }[];
+}
+
+export interface StopScheduleV2 {
+  stop: BusStop;
+  lines: {
+    line: BusLineV2;
+    schedules: BusHorarioV2[];
   }[];
 }
 
@@ -225,6 +244,12 @@ export interface LineApiProperties {
   cd_linha_principal?: string;
   codigo?: string;
   cod_linha?: string;
+}
+
+export interface LineV2ApiProperties {
+  numero: string;
+  sentido: string;
+  geolinhas: { type: string; coordinates: [number, number][]; }[];
 }
 
 export interface FrotaApiProperties {

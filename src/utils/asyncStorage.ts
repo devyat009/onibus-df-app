@@ -86,6 +86,7 @@ export async function isCacheValid(key: string, ttl: number = THREE_DAYS_MS): Pr
 // Cache keys constants
 export const CACHE_KEYS = {
   LINES: 'bus_lines',
+  LINES_V2: 'bus_lines_v2',
   FROTA: 'frota_operadora',
   STOPS: 'bus_stops',
   BUSES: 'bus_positions',

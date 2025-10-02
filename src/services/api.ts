@@ -6,18 +6,20 @@ import {
   BusHorario,
   BusHorarioV2,
   BusLine,
+  BusLineV2,
   BusStop,
+  BusStopDados,
   EnhancedBus,
   ErrorCode,
   FrotaApiProperties,
   FrotaOperadora,
   HorarioApiProperties,
-  HorarioV2Api,
   LineApiProperties,
   MapBounds,
   NewBusApiResponse,
   Stop2025ApiProperties,
-  StopSchedule
+  StopSchedule,
+  StopScheduleV2
 } from '../types';
 //import { CACHE_KEYS, CacheOptions, getCachedOrFetch } from '../utils/asyncStorage';
 import { CACHE_KEYS, CacheOptions, getCachedOrFetch } from "@/src/utils/cacheManager";
@@ -56,13 +58,18 @@ class ApiService {
       }
 
       if (bounds && useGeoserver) {
-        const minX = Math.min(bounds.west, bounds.east);
-        const maxX = Math.max(bounds.west, bounds.east);
-        const minY = Math.min(bounds.south, bounds.north);
-        const maxY = Math.max(bounds.south, bounds.north);
+        // Normalize bounds to ensure correct min/max values with high precision
+        const minX = Math.min(bounds.west, bounds.east).toFixed(8);
+        const maxX = Math.max(bounds.west, bounds.east).toFixed(8);
+        const minY = Math.min(bounds.south, bounds.north).toFixed(8);
+        const maxY = Math.max(bounds.south, bounds.north).toFixed(8);
 
-        if (endpoint == appConfig.api.endpoints.geoParadas2025) {
-          url+= `&bbox=${minX},${minY},${maxX},${maxY}`;
+
+        if (endpoint === appConfig.api.endpoints.geoParadas2025 || endpoint === appConfig.api.endpoints.geoOnibusPosicao) {
+          // Use CQL_FILTER with INTERSECTS polygon for geoParadas2025
+          // Format: POLYGON((lon lat,lon lat,lon lat,lon lat,lon lat))
+          const polygon = `POLYGON((${minX} ${minY},${maxX} ${minY},${maxX} ${maxY},${minX} ${maxY},${minX} ${minY}))`;
+          url += `&CQL_FILTER=INTERSECTS(geom_point,${encodeURIComponent(polygon)})`;
         } else {
         const bbox = `${minX},${minY},${maxX},${maxY},EPSG:4326`;
         url += `&bbox=${bbox}&srsName=EPSG:4326`;
@@ -129,7 +136,7 @@ class ApiService {
     const filterToUse = timeFilter || useAppStore.getState().busTimeFilter;
 
     let allBuses: Bus[] = [];
-    let usedGeoserverData = false;
+    let shouldUseFallback = false;
 
     try {
       const geoserverEndpoint = appConfig.api.endpoints.geoOnibusPosicao || appConfig.api.endpoints.dadosOnibusPosicao;
@@ -139,25 +146,30 @@ class ApiService {
         true // Prefer geoserver data when available
       );
 
-      if (response?.features?.length) {
+      // checks
+      if (!response) {
+        console.warn('Geoserver returned null/undefined response; using fallback API.');
+        shouldUseFallback = true;
+      } else if (!response.features) {
+        console.warn('Geoserver response missing features property; using fallback API.');
+        shouldUseFallback = true;
+      } else if (!Array.isArray(response.features)) {
+        console.warn('Geoserver response.features is not an array; using fallback API.');
+        shouldUseFallback = true;
+      } else {
         const transformed = response.features
           .map(feature => this.transformBusFromApi(feature))
           .filter((bus): bus is Bus => bus !== null);
 
-        if (transformed.length > 0) {
-          allBuses = transformed;
-          usedGeoserverData = true;
-        } else {
-          console.warn('Geoserver returned bus features but none could be transformed; using fallback API.');
-        }
-      } else {
-        console.warn('Geoserver returned no bus features; using fallback API.');
+        allBuses = transformed;
       }
     } catch (error) {
-      console.warn('Failed to fetch buses from geoserver, falling back to new API:', error);
+      console.warn('Failed to fetch buses from geoserver (error caught), falling back to new API:', error);
+      shouldUseFallback = true;
     }
 
-    if (!usedGeoserverData) {
+    // fallback only if geoserver failed
+    if (shouldUseFallback) {
       console.warn('Using new bus API fallback.');
       allBuses = await this.fetchBusesFromNewApi();
     }
@@ -354,25 +366,52 @@ class ApiService {
   async getStops(bounds?: MapBounds): Promise<BusStop[]> {
     let endpoint = appConfig.api.endpoints.geoParadas2025;
 
-    // Force EPSG:4326 output for stops
-    // if (!endpoint.includes('srsName=')) {
-    //   endpoint += '&srsName=EPSG:4326';
-    // }
-
     const response = await this.makeRequest<Stop2025ApiProperties>(
       endpoint,
       bounds,
       true // Use geoserver for stops
     );
 
-    return response.features
+    const stops = response.features
       .map(feature => this.transformStop2025FromApi(feature))
       .filter((stop): stop is BusStop => !!stop && stop.situacao !== false);
 
-    // old api
-    // return response.features
-    //   .map(feature => this.transformStopFromApi(feature))
-    //   .filter((stop): stop is BusStop => !!stop && stop.situacao !== "DESATIVADA");
+    // console.log('Successfully loaded ' + stops.length + ' stops from geoserver (server-side filtered)');
+    return stops;
+  }
+
+  async getStopDados(): Promise<BusStopDados[]> {
+    const response = await fetch(`${this.baseUrl}${appConfig.api.endpoints.dadosParadas}`, {
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch stop: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    const entries = Array.isArray(data) ? data : (data?.paradas ?? []);
+
+    return entries
+      .map((entry: any) => {
+        const id = Number(entry?.codParada ?? entry?.id);
+        if (!Number.isFinite(id)) return null;
+
+        let linhas = entry?.linParadaSentido ?? entry?.linParadas ?? [];
+        if (typeof linhas === 'string') {
+          linhas = linhas.split(/[,;]\s*/).filter(Boolean);
+        }
+        if (!Array.isArray(linhas)) {
+          linhas = [];
+        }
+
+        return {
+          id,
+          linParadas: linhas.map(String),
+        };
+      })
+      .filter((item: BusStopDados): item is BusStopDados => item !== null);
   }
 
   async getLines(): Promise<BusLine[]> {
@@ -387,11 +426,42 @@ class ApiService {
       .filter(line => line !== null) as BusLine[];
   }
 
+  async getLinesV2(): Promise<BusLineV2[]> {
+    const response = await fetch(`${this.baseUrl}${appConfig.api.endpoints.dadosLinhasEspaciais}`, {
+      headers: {
+        'Accept': 'application/json',
+      },
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch lines V2: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+
+    // API returns array directly, not wrapped in features
+    const rawFeatures = Array.isArray(data) ? data : [];
+
+    const lines = rawFeatures
+      .map((feature: any) => this.transformLineV2FromApi(feature))
+      .filter((line: BusLineV2 | null): line is BusLineV2 => line !== null);
+
+    return lines;
+  }
   // Cached version of getLines - data persists for 3 days
   async getLinesCached(options?: CacheOptions): Promise<BusLine[]> {
     return getCachedOrFetch(
       CACHE_KEYS.LINES,
       () => this.getLines(),
+      options
+    );
+  }
+
+  async getLinesV2Cached(options?: CacheOptions): Promise<BusLineV2[]> {
+    return getCachedOrFetch(
+      CACHE_KEYS.LINES_DADOS,
+      () => this.getLinesV2(),
       options
     );
   }
@@ -430,6 +500,14 @@ class ApiService {
     );
   }
 
+  async getStopDadosCached(options?: CacheOptions): Promise<BusStopDados[]> {
+    return getCachedOrFetch(
+      CACHE_KEYS.STOP_DADOS,
+      () => this.getStopDados(),
+      options
+    );
+  }
+
   // Cached version of getHorario
   async getHorarioCached(options?: CacheOptions): Promise<BusHorario[]> {
     return getCachedOrFetch(
@@ -441,11 +519,12 @@ class ApiService {
 
   async getHorarioV2Cached(options?: CacheOptions): Promise<BusHorarioV2[]> {
     return getCachedOrFetch(
-      CACHE_KEYS.BUS_HORARIO_V2,
+      CACHE_KEYS.BUS_HORARIO_DADOS,
       () => this.getHorarioV2(),
       options
     );
   }
+
 
   /**
    * Calculate if a bus line passes through a stop using proximity analysis
@@ -459,7 +538,6 @@ class ApiService {
     // Check if any segment of the line is within tolerance distance of the stop
     const stopCoords = [stop.longitude, stop.latitude];
 
-    console.log(`Checking line ${line.codigo} with ${line.coordinates.length} coordinates against stop ${stop.codigo}`);
 
     // Quick bounds check first to avoid expensive calculations
     const lineBounds = this.getLineBounds(line.coordinates);
@@ -647,6 +725,81 @@ class ApiService {
     };
   }
 
+  async getStopScheduleV2(stop: BusStop): Promise<StopScheduleV2> {
+    console.log(`[GETSTOPSCHEDULEV2] Getting V2 schedule for stop: ${stop.codigo} - ${stop.nome}`);
+    const lines = await this.getLinesV2();
+    const horarios = await this.getHorarioV2Cached();
+    const paradas = await this.getStopDadosCached();
+
+    // console.log(`[GETSTOPSCHEDULEV2] Loaded ${lines.length} lines and ${horarios.length} schedules`);
+    // console.log(`[GETSTOPSCHEDULEV2] Finding lines that serve stop ${stop.codigo}`);
+
+    // Helper function to map full sentido to abbreviated sentido
+    const mapSentidoToAbbreviation = (sentido: string): string => {
+      const upperSentido = sentido.toUpperCase();
+      if (upperSentido === 'IDA') return 'I';
+      if (upperSentido === 'VOLTA') return 'V';
+      if (upperSentido === 'CIRCULAR') return 'C';
+      // Return first letter as fallback
+      return upperSentido.charAt(0);
+    };
+
+    let relevantLines: BusLineV2[] = [];
+
+    if (Array.isArray(paradas)) {
+      for (const parada of paradas) {
+        if (parada.id === Number(stop.codigo)) {
+          // console.log(`[GETSTOPSCHEDULEV2] Found matching parada for stop ${stop.codigo}:`, parada);
+          
+          for (const bus of parada.linParadas) {
+            // Parse "0.011 - CIRCULAR" -> numero: "0.011", sentido: "CIRCULAR"
+            const parts = bus.split(' - ');
+            if (parts.length < 2) continue;
+            
+            const numero = parts[0].trim();
+            const sentido = parts[1].trim();
+            
+            const matchedLine = lines.find(
+              line => line.numero === numero && line.sentido === sentido
+            );
+            
+            if (matchedLine && !relevantLines.includes(matchedLine)) {
+              relevantLines.push(matchedLine);
+            }
+          }
+        }
+      }
+    }
+    // console.log(`[GETSTOPSCHEDULEV2] Found ${relevantLines.length} lines that might serve stop ${stop.codigo}`);
+    
+    const linesWithSchedules = relevantLines.map(line => {
+      // Map the full sentido name to its abbreviation for matching with horarios
+      const sentidoAbbrev = mapSentidoToAbbreviation(line.sentido);
+      
+      const matchingSchedules = horarios.filter(
+        horario => horario.numero_linha === line.numero && horario.sentido === sentidoAbbrev
+      );
+      
+      // console.log(`[GETSTOPSCHEDULEV2] Line ${line.numero} (${line.sentido} -> ${sentidoAbbrev}): ${matchingSchedules.length} schedules found`);
+      if (matchingSchedules.length > 0) {
+        // console.log(`[GETSTOPSCHEDULEV2] First schedule sample:`, matchingSchedules[0]);
+      }
+      
+      return {
+        line,
+        schedules: matchingSchedules
+      };
+    }).filter(item => item.schedules.length > 0);
+
+    // console.log(`[GETSTOPSCHEDULEV2] Final result: ${linesWithSchedules.length} lines with schedules`);
+    // console.log(`[GETSTOPSCHEDULEV2] Complete result:`, JSON.stringify(linesWithSchedules, null, 2));
+
+    return {
+      stop,
+      lines: linesWithSchedules
+    };
+  }
+
   // Cached version of getHorario
   async fetchHorario(): Promise<BusHorario[]> {
     const response = await this.makeRequest<HorarioApiProperties>(
@@ -667,7 +820,6 @@ class ApiService {
       },
       cache: 'no-store',
     });
-
     if (!response.ok) {
       throw new ApiError('API_ERROR', `HTTP ${response.status} - ${response.statusText}`, {
         status: response.status,
@@ -677,8 +829,8 @@ class ApiService {
     }
 
     // simple array, not GeoJSON
-    const data: HorarioV2Api[] = await response.json();
-
+    const data: any[] = await response.json();
+    // console.log('[HORARIOV2] Raw API response:', { itemCount: data.length, firstItem: data[0] });
     // Map to BusHorarioV2
     return data.map(item => ({
       numero_linha: item.numero,
@@ -715,7 +867,7 @@ class ApiService {
 
   async getHorarioV2(): Promise<BusHorarioV2[]> {
     return getCachedOrFetch(
-      CACHE_KEYS.BUS_HORARIO_V2,
+      CACHE_KEYS.BUS_HORARIO_DADOS,
       () => this.fetchHorarioV2(),
       { ttl: 30 * 60 * 1000 } // 30 minutes default TTL for horario
     );
@@ -768,6 +920,27 @@ class ApiService {
   private isBusInBounds(bus: Bus, bounds?: MapBounds): boolean {
     if (!bounds) return true;
     const { latitude, longitude } = bus;
+    if (latitude == null || longitude == null) return false;
+
+    const south = Math.min(bounds.south, bounds.north);
+    const north = Math.max(bounds.south, bounds.north);
+    const west = Math.min(bounds.west, bounds.east);
+    const east = Math.max(bounds.west, bounds.east);
+
+    if ([south, north, west, east].some(v => !isFinite(v))) return true;
+    if (east === west || north === south) return true; // degenerate box: skip filtering
+
+    return (
+      latitude >= south &&
+      latitude <= north &&
+      longitude >= west &&
+      longitude <= east
+    );
+  }
+
+  private isStopInBounds(stop: BusStop, bounds?: MapBounds): boolean {
+    if (!bounds) return true;
+    const { latitude, longitude } = stop;
     if (latitude == null || longitude == null) return false;
 
     const south = Math.min(bounds.south, bounds.north);
@@ -982,6 +1155,41 @@ class ApiService {
       servico: properties.servico || codigo,
       coordinates,
       tipo: geometry.type as 'LineString' | 'MultiLineString',
+    };
+  }
+
+  private transformLineV2FromApi(feature: any): BusLineV2 | null {
+    if (!feature) {
+      return null;
+    }
+
+    // API returns properties with capital first letter: Numero, Sentido, GeoLinhas
+    const numero = feature.Numero || feature.numero;
+    const sentido = feature.Sentido || feature.sentido || '';
+    const geoLinhasRaw = feature.GeoLinhas || feature.geolinhas;
+
+    if (!numero) {
+      return null;
+    }
+
+    // GeoLinhas can be a single LineString object or array
+    let geolinhas: { type: string; coordinates: [number, number][] }[] = [];
+    
+    if (geoLinhasRaw) {
+      if (Array.isArray(geoLinhasRaw)) {
+        geolinhas = geoLinhasRaw
+          .filter((item: any) => item && item.type && Array.isArray(item.coordinates))
+          .map((item: any) => ({ type: item.type, coordinates: item.coordinates }));
+      } else if (geoLinhasRaw.type && Array.isArray(geoLinhasRaw.coordinates)) {
+        // Single LineString object
+        geolinhas = [{ type: geoLinhasRaw.type, coordinates: geoLinhasRaw.coordinates }];
+      }
+    }
+
+    return {
+      numero,
+      sentido,
+      geolinhas,
     };
   }
 }
