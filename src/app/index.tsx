@@ -64,7 +64,7 @@ export default function Index() {
   const [cameraMode, setCameraMode] = useState<'auto' | 'free'>('auto');
   const [userMapZoom, setUserMapZoom] = useState<number | undefined>(undefined);
   const BUS_ZOOM_THRESHOLD = 13.4;
-  const STOPS_ZOOM_THRESHOLD = 14;
+  const STOPS_ZOOM_THRESHOLD = 15.4;
 
   // Settings modal
   const [showSettings, setShowSettings] = useState(false);
@@ -613,7 +613,7 @@ export default function Index() {
               }}
             >
               <StopsPainelMenu
-                stops={(userMapZoom ?? 0) >= 15.4 ? stops : []}
+                stops={(userMapZoom ?? 0) >= STOPS_ZOOM_THRESHOLD ? stops : []}
                 selectedStopFromMap={selectedStopFromMap}
                 onStopSelected={() => setSelectedStopFromMap(null)}
               />

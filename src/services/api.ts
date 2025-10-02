@@ -75,14 +75,12 @@ class ApiService {
         url += `&bbox=${bbox}&srsName=EPSG:4326`;
         }
       }
-
       const response = await fetch(url, {
         headers: {
           'Accept': 'application/json',
         },
         cache: 'no-store',
       });
-
       const contentType = response.headers.get('content-type') || '';
 
       if (!response.ok) {
