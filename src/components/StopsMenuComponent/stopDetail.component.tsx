@@ -1,7 +1,8 @@
 import { useStopFavorites } from '@/src/hooks/useFavorites';
 import { apiService } from '@/src/services/api';
 import { useAppStore } from '@/src/store';
-import { BusStop, StopScheduleV2 } from '@/src/types';
+import { BusStop, StopRealtimeArrivalsMap, StopScheduleV2 } from '@/src/types';
+import { buildLineKey } from '@/src/utils/lineUtils';
 import { FontAwesome5, MaterialIcons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
 import {
@@ -18,11 +19,22 @@ interface StopDetailProps {
   onBack: () => void;
 }
 
+type DisplayItem = {
+  label: string;
+  unit?: string;
+  isRealtime: boolean;
+  isNow: boolean;
+  isPast?: boolean;
+};
+
 const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
   const appTheme = useAppStore(state => state.appTheme);
   const [scheduleData, setScheduleData] = useState<StopScheduleV2 | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [realtimeArrivals, setRealtimeArrivals] = useState<StopRealtimeArrivalsMap>({});
+  const [realtimeLoading, setRealtimeLoading] = useState(false);
+  const [realtimeError, setRealtimeError] = useState<string | null>(null);
 
   // Favorites using custom hook
   const { isFavorite, toggleFavorite } = useStopFavorites();
@@ -71,6 +83,62 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
 
     loadData();
   }, [stop]);
+
+  useEffect(() => {
+    let isMounted = true;
+    let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    const fetchRealtime = async () => {
+      if (!scheduleData || !scheduleData.lines?.length) {
+        if (isMounted) {
+          setRealtimeArrivals({});
+          setRealtimeError(null);
+        }
+        return;
+      }
+
+      try {
+        if (isMounted) {
+          setRealtimeLoading(true);
+          setRealtimeError(null);
+        }
+
+        const lines = scheduleData.lines.map(item => item.line);
+        const realtime = await apiService.getRealtimeArrivalsForStop(stop, lines, {
+          radiusMeters: 2000,
+          maxPerLine: 3,
+          maxEtaMinutes: 90,
+        });
+
+        if (isMounted) {
+          setRealtimeArrivals(realtime);
+        }
+      } catch (err) {
+        console.error('[STOPDETAIL] Erro ao carregar dados em tempo real:', err);
+        if (isMounted) {
+          setRealtimeArrivals({});
+          setRealtimeError('Dados em tempo real indisponíveis no momento');
+        }
+      } finally {
+        if (isMounted) {
+          setRealtimeLoading(false);
+          if (refreshTimeout) {
+            clearTimeout(refreshTimeout);
+          }
+          refreshTimeout = setTimeout(fetchRealtime, 30000);
+        }
+      }
+    };
+
+    fetchRealtime();
+
+    return () => {
+      isMounted = false;
+      if (refreshTimeout) {
+        clearTimeout(refreshTimeout);
+      }
+    };
+  }, [stop, scheduleData]);
 
   const formatSchedule = (time: string) => {
     return time.substring(0, 5); // Remove seconds if present
@@ -123,6 +191,52 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
 
     // If no future schedules, return the last past schedules (showing what already passed)
     return pastSchedules.slice(-limit);
+  };
+
+  const buildDisplayItems = (
+    lineNumber: string,
+    lineSentido: string,
+    fallbackSchedules: ReturnType<typeof getNextSchedules>,
+  ): DisplayItem[] => {
+    const items: DisplayItem[] = [];
+    const lineKey = buildLineKey(lineNumber, lineSentido);
+    const realtimeItems = realtimeArrivals[lineKey]?.arrivals ?? [];
+    const now = new Date();
+
+    realtimeItems.forEach(arrival => {
+      const eta = Math.max(0, arrival.etaMinutes);
+      const isNow = eta < 1;
+      const minutes = Math.max(1, Math.round(eta));
+      items.push({
+        label: isNow ? 'Agora' : String(minutes),
+        unit: isNow ? undefined : 'min',
+        isRealtime: true,
+        isNow,
+      });
+    });
+
+    if (items.length < 3) {
+      fallbackSchedules.forEach(schedule => {
+        if (items.length >= 3) return;
+
+        const [hours, minutes] = schedule.hr_prevista.split(':').map(Number);
+        const scheduleDate = new Date(now);
+        scheduleDate.setHours(hours, minutes, 0, 0);
+        const diffMinutes = Math.round((scheduleDate.getTime() - now.getTime()) / 60000);
+        const isPast = Boolean(schedule.isPast);
+        const isMinutes = diffMinutes >= 0 && diffMinutes <= 60 && !isPast;
+
+        items.push({
+          label: isMinutes ? String(diffMinutes) : formatSchedule(schedule.hr_prevista),
+          unit: isMinutes ? 'min' : undefined,
+          isRealtime: false,
+          isNow: false,
+          isPast,
+        });
+      });
+    }
+
+    return items.slice(0, 3);
   };
 
   if (loading) {
@@ -276,6 +390,31 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        {(realtimeLoading || realtimeError) && (
+          <View
+            style={[
+              styles.realtimeBanner,
+              {
+                backgroundColor: appTheme === 'dark' ? '#1a1a1a' : '#eef9f1',
+                borderColor: appTheme === 'dark' ? '#2f2f2f' : '#c7ebd3',
+              },
+            ]}
+          >
+            <MaterialIcons
+              name={realtimeError ? 'wifi-off' : 'sync'}
+              size={18}
+              color={realtimeError ? '#ff6b6b' : '#00C853'}
+            />
+            <Text
+              style={[
+                styles.realtimeBannerText,
+                { color: realtimeError ? '#ff6b6b' : '#00C853' },
+              ]}
+            >
+              {realtimeError ? realtimeError : 'Atualizando horários em tempo real...'}
+            </Text>
+          </View>
+        )}
         {scheduleData && scheduleData.lines.length > 0 ? (
           (() => {
             // Process all lines and their schedules
@@ -320,121 +459,114 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
                   </View>
 
                   <View style={styles.schedulesContainer}>
-                    {nextSchedules.length > 0 ? (
-                      <View style={styles.compactScheduleCard}>
-                        {/* Route icon and Main schedule - side by side */}
-                        {(() => {
-                          const schedule = nextSchedules[0];
-                          const now = new Date();
-                          const [h, m] = schedule.hr_prevista.split(':').map(Number);
-                          const scheduleDate = new Date(now);
-                          scheduleDate.setHours(h, m, 0, 0);
-                          let diff = Math.round((scheduleDate.getTime() - now.getTime()) / 60000);
-                          let isMinutes = diff >= 0 && diff <= 60;
-                          let isPast = schedule.isPast || false;
-                          let mainNumber = isMinutes ? diff.toString() : formatSchedule(schedule.hr_prevista);
+                    {(() => {
+                      const displayItems = buildDisplayItems(
+                        lineData.line.numero,
+                        lineData.line.sentido,
+                        nextSchedules,
+                      );
 
-                          return (
-                            <>
-                              <View style={styles.scheduleRowContainer}>
-                                {/* Route button */}
-                                <View style={styles.routeButtonBox}>
-                                  <TouchableOpacity
-                                    style={[
-                                      styles.routeIconSquare,
-                                      { backgroundColor: appTheme === 'dark' ? '#242424ff' : '#f0f0f0' }
-                                    ]}
-                                    onPress={() => {
-                                      console.log('see route:', lineData.line.numero);
-                                    }}
-                                  >
-                                    <FontAwesome5 name="route" size={18} color="#007AFF" solid />
-                                  </TouchableOpacity>
-                                </View>
+                      if (displayItems.length === 0) {
+                        return (
+                          <View style={styles.noSchedulesContainer}>
+                            <Text style={[styles.noSchedulesText, { color: appTheme === 'dark' ? '#aaa' : '#666' }]}>
+                              Nenhum horário disponível
+                            </Text>
+                          </View>
+                        );
+                      }
 
-                                {/* Time square */}
-                                <View style={styles.mainScheduleBox}>
-                                  <View style={[
-                                    styles.mainTimeSquare,
-                                    { 
-                                      backgroundColor: isPast 
-                                        ? (appTheme === 'dark' ? '#1a1a1a' : '#e8e8e8')
-                                        : (appTheme === 'dark' ? '#242424ff' : '#f0f0f0')
-                                    }
-                                  ]}>
-                                    <Text style={[
-                                      styles.mainTimeNumber, 
-                                      { color: isPast ? '#999' : '#666' }
-                                    ]}>
-                                      {mainNumber}
-                                    </Text>
-                                    {isMinutes && !isPast && (
-                                      <Text style={[styles.mainTimeUnit, { color: '#666' }]}>min</Text>
-                                    )}
-                                  </View>
-                                  
-                                  {/* Label if past schedule */}
-                                  {isPast && (
-                                    <View style={styles.pastScheduleLabelContainer}>
-                                      <Text style={[styles.pastScheduleLabel, { color: '#999' }]}>
-                                        já passou
-                                      </Text>
-                                    </View>
-                                  )}
-                                  
-                                  {/* Next schedules below */}
-                                  {nextSchedules.length > 1 && !isPast && (
-                                    <View style={styles.nextSchedulesContainer}>
-                                      <Text style={[styles.nextScheduleText, { color: '#666' }]}>
-                                        {(() => {
-                                          const nextItems = nextSchedules.slice(1, 3);
-                                          let allAreMinutes = true;
-                                          
-                                          const displays = nextItems.map((nextSchedule, idx) => {
-                                            const [nh, nm] = nextSchedule.hr_prevista.split(':').map(Number);
-                                            const nextDate = new Date(now);
-                                            nextDate.setHours(nh, nm, 0, 0);
-                                            let nextDiff = Math.round((nextDate.getTime() - now.getTime()) / 60000);
-                                            let nextIsMinutes = nextDiff >= 0 && nextDiff <= 60;
-                                            
-                                            if (!nextIsMinutes) {
-                                              allAreMinutes = false;
-                                            }
-                                            
-                                            return {
-                                              display: nextIsMinutes ? `${nextDiff}` : formatSchedule(nextSchedule.hr_prevista),
-                                              isMinutes: nextIsMinutes
-                                            };
-                                          });
+                      const mainItem = displayItems[0];
+                      const secondaryItems = displayItems.slice(1);
+                      const isRealtimeMain = Boolean(mainItem?.isRealtime);
+                      const isPastMain = Boolean(mainItem?.isPast);
 
-                                          return (
-                                            <>
-                                              {displays.map((item, idx) => (
-                                                <React.Fragment key={idx}>
-                                                  {idx > 0 && ', '}
-                                                  {item.display}
-                                                </React.Fragment>
-                                              ))}
-                                              {allAreMinutes && <Text style={styles.nextScheduleUnit}> min</Text>}
-                                            </>
-                                          );
-                                        })()}
-                                      </Text>
-                                    </View>
-                                  )}
-                                </View>
+                      const mainNumber = mainItem?.label ?? '--';
+                      const mainUnit = mainItem?.unit;
+                      const mainNumberColor = isRealtimeMain
+                        ? '#00C853'
+                        : (isPastMain ? '#999' : '#666');
+                      const mainUnitColor = isRealtimeMain ? '#00C853' : '#666';
+                      const mainBackgroundColor = isRealtimeMain
+                        ? (appTheme === 'dark' ? '#0f2d1b' : '#dff6e9')
+                        : (isPastMain
+                          ? (appTheme === 'dark' ? '#1a1a1a' : '#e8e8e8')
+                          : (appTheme === 'dark' ? '#242424ff' : '#f0f0f0'));
+
+                      const showPastLabel = !isRealtimeMain && isPastMain;
+                      const hasSecondary = secondaryItems.length > 0;
+
+                      return (
+                        <View style={styles.compactScheduleCard}>
+                          <View style={styles.scheduleRowContainer}>
+                            {/* Route button */}
+                            <View style={styles.routeButtonBox}>
+                              <TouchableOpacity
+                                style={[
+                                  styles.routeIconSquare,
+                                  { backgroundColor: appTheme === 'dark' ? '#242424ff' : '#f0f0f0' }
+                                ]}
+                                onPress={() => {
+                                  console.log('see route:', lineData.line.numero);
+                                }}
+                              >
+                                <FontAwesome5 name="route" size={18} color="#007AFF" solid />
+                              </TouchableOpacity>
+                            </View>
+
+                            {/* Time square */}
+                            <View style={styles.mainScheduleBox}>
+                              <View style={[
+                                styles.mainTimeSquare,
+                                {
+                                  backgroundColor: mainBackgroundColor,
+                                }
+                              ]}>
+                                <Text style={[
+                                  styles.mainTimeNumber, 
+                                  { color: mainNumberColor }
+                                ]}>
+                                  {mainNumber}
+                                </Text>
+                                {mainUnit && (
+                                  <Text style={[styles.mainTimeUnit, { color: mainUnitColor }]}>{mainUnit}</Text>
+                                )}
                               </View>
-                            </>
-                          );
-                        })()}
-                      </View>
-                    ) : (
-                      <View style={styles.noSchedulesContainer}>
-                        <Text style={[styles.noSchedulesText, { color: appTheme === 'dark' ? '#aaa' : '#666' }]}>
-                          Nenhum horário disponível
-                        </Text>
-                      </View>
-                    )}
+                              
+                              {/* Label if past schedule */}
+                              {showPastLabel && (
+                                <View style={styles.pastScheduleLabelContainer}>
+                                  <Text style={[styles.pastScheduleLabel, { color: '#999' }]}>
+                                    já passou
+                                  </Text>
+                                </View>
+                              )}
+                              
+                              {/* Next schedules below */}
+                              {hasSecondary && !showPastLabel && (
+                                <View style={styles.nextSchedulesContainer}>
+                                  <Text style={styles.nextScheduleText}>
+                                    {secondaryItems.map((item, idx) => (
+                                      <Text
+                                        key={`${lineData.line.numero}-${idx}`}
+                                        style={[
+                                          styles.nextScheduleText,
+                                          { color: item.isRealtime ? '#00C853' : '#666' },
+                                        ]}
+                                      >
+                                        {idx > 0 ? ', ' : ''}
+                                        {item.label}
+                                        {item.unit ? ` ${item.unit}` : ''}
+                                      </Text>
+                                    ))}
+                                  </Text>
+                                </View>
+                              )}
+                            </View>
+                          </View>
+                        </View>
+                      );
+                    })()}
                   </View>
                 </View>
 
@@ -501,6 +633,20 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     padding: 10,
+  },
+  realtimeBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginBottom: 12,
+  },
+  realtimeBannerText: {
+    marginLeft: 8,
+    fontSize: 13,
+    fontWeight: '600',
   },
   centerContent: {
     flex: 1,

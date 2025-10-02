@@ -237,6 +237,77 @@ export async function isCacheValid(key: string, ttl: number = THREE_DAYS_MS): Pr
   }
 }
 
+export async function getCacheStats() {
+  try {
+    const keys = await AsyncStorage.getAllKeys();
+    const cacheKeys = keys.filter(key => !key.endsWith('_timestamp') && !key.endsWith('_fs') && !key.endsWith('_fs_size'));
+
+    let asyncStorageBytes = 0;
+    for (const key of cacheKeys) {
+      const value = await AsyncStorage.getItem(key);
+      if (typeof value === 'string') {
+        asyncStorageBytes += value.length;
+      }
+    }
+
+    let fileCount = 0;
+    let fileBytes = 0;
+    const dir = FileSystem.documentDirectory;
+    if (dir) {
+      const files = await FileSystem.readDirectoryAsync(dir);
+      for (const file of files) {
+        if (!file.endsWith('.json')) continue;
+        fileCount += 1;
+        try {
+          const info = await FileSystem.getInfoAsync(dir + file);
+          if (info.exists && typeof info.size === 'number') {
+            fileBytes += info.size;
+          }
+        } catch (err) {
+          console.warn('Failed to read cache file info:', err);
+        }
+      }
+    }
+
+    return {
+      keys: cacheKeys,
+      keyCount: cacheKeys.length,
+      asyncStorageBytes,
+      fileCount,
+      fileBytes,
+      lastUpdated: Date.now(),
+    };
+  } catch (error) {
+    console.error('Failed to compute cache stats:', error);
+    return {
+      keys: [] as string[],
+      keyCount: 0,
+      asyncStorageBytes: 0,
+      fileCount: 0,
+      fileBytes: 0,
+      lastUpdated: Date.now(),
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function forceRefreshMainCaches(): Promise<void> {
+  try {
+    const entries = Object.values(CACHE_KEYS);
+    await Promise.all(entries.map(key => clearCache(key)));
+  } catch (error) {
+    console.error('Failed to refresh caches:', error);
+    throw error;
+  }
+}
+
+export const CacheManager = {
+  getCacheStats,
+  clearAllCache,
+  clearCache,
+  forceRefreshMainCaches,
+};
+
 // Cache keys constants
 export const CACHE_KEYS = {
   LINES: 'bus_lines',

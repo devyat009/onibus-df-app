@@ -115,6 +115,21 @@ export interface StopScheduleV2 {
   }[];
 }
 
+export interface RealTimeArrivalEstimate {
+  bus: Bus;
+  etaMinutes: number;
+  distanceMeters: number;
+  speedKmh: number;
+  isApproaching: boolean;
+}
+
+export interface LineRealtimeArrivals {
+  line: BusLineV2;
+  arrivals: RealTimeArrivalEstimate[];
+}
+
+export type StopRealtimeArrivalsMap = Record<string, LineRealtimeArrivals>;
+
 export interface FrotaOperadora {
   id: string;
   dataReferencia: string;

@@ -18,12 +18,14 @@ import {
   MapBounds,
   NewBusApiResponse,
   Stop2025ApiProperties,
+  StopRealtimeArrivalsMap,
   StopSchedule,
   StopScheduleV2
 } from '../types';
 //import { CACHE_KEYS, CacheOptions, getCachedOrFetch } from '../utils/asyncStorage';
 import { CACHE_KEYS, CacheOptions, getCachedOrFetch } from "@/src/utils/cacheManager";
 import appConfig from '../utils/config';
+import { buildLineKey, matchesLineNumber, normalizeLineNumber, normalizeSentido, stripLeadingZeros } from '../utils/lineUtils';
 
 class ApiError extends Error {
   code: ErrorCode;
@@ -798,6 +800,251 @@ class ApiService {
     };
   }
 
+  async getRealtimeArrivalsForStop(
+    stop: BusStop,
+    lines: BusLineV2[],
+    options?: {
+      radiusMeters?: number;
+      maxPerLine?: number;
+      maxEtaMinutes?: number;
+      maxDistanceToRoute?: number;
+    }
+  ): Promise<StopRealtimeArrivalsMap> {
+    if (!stop || !isFinite(stop.latitude) || !isFinite(stop.longitude) || !Array.isArray(lines) || lines.length === 0) {
+      return {};
+    }
+
+    const radiusMeters = options?.radiusMeters ?? 1500;
+    const maxPerLine = options?.maxPerLine ?? 3;
+    const maxEtaMinutes = options?.maxEtaMinutes ?? 90;
+    const maxDistanceToRoute = options?.maxDistanceToRoute ?? 600;
+
+    const bounds = this.createBoundsFromRadius(stop.latitude, stop.longitude, radiusMeters);
+    const buses = await this.getBuses(bounds);
+
+    if (!buses.length) {
+      return {};
+    }
+
+    type LineMeta = {
+      line: BusLineV2;
+      coords: [number, number][];
+      cumulative: number[];
+      stopIndex: number;
+      stopDistance: number;
+      sentido: string;
+      key: string;
+    };
+
+    const flattenLineCoordinates = (line: BusLineV2): [number, number][] => {
+      const coords: [number, number][] = [];
+      for (const geom of line.geolinhas) {
+        if (!geom || !geom.coordinates) continue;
+
+        if (geom.type === 'LineString' && Array.isArray(geom.coordinates)) {
+          (geom.coordinates as any[]).forEach(point => {
+            if (Array.isArray(point) && point.length >= 2) {
+              coords.push([Number(point[0]), Number(point[1])]);
+            }
+          });
+        } else if (geom.type === 'MultiLineString' && Array.isArray(geom.coordinates)) {
+          (geom.coordinates as any[]).forEach((segment: any) => {
+            if (Array.isArray(segment)) {
+              segment.forEach((point: any) => {
+                if (Array.isArray(point) && point.length >= 2) {
+                  coords.push([Number(point[0]), Number(point[1])]);
+                }
+              });
+            }
+          });
+        }
+      }
+      return coords;
+    };
+
+    const computeCumulativeDistances = (coords: [number, number][]): number[] => {
+      const cumulative: number[] = [0];
+      for (let i = 1; i < coords.length; i++) {
+        const [prevLng, prevLat] = coords[i - 1];
+        const [lng, lat] = coords[i];
+        const segment = this.haversineDistance(prevLat, prevLng, lat, lng);
+        cumulative[i] = cumulative[i - 1] + (isFinite(segment) ? segment : 0);
+      }
+      return cumulative;
+    };
+
+    const findNearestIndex = (coords: [number, number][], point: [number, number]) => {
+      let bestIndex = -1;
+      let bestDistance = Number.POSITIVE_INFINITY;
+      coords.forEach(([lng, lat], index) => {
+        const distance = this.haversineDistance(lat, lng, point[1], point[0]);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          bestIndex = index;
+        }
+      });
+      return { index: bestIndex, distance: bestDistance };
+    };
+
+    const metas: LineMeta[] = lines
+      .map(line => {
+        const coords = flattenLineCoordinates(line);
+        if (!coords || coords.length < 2) {
+          return null;
+        }
+
+        const cumulative = computeCumulativeDistances(coords);
+        const stopProjection = findNearestIndex(coords, [stop.longitude, stop.latitude]);
+
+        if (stopProjection.index === -1 || stopProjection.distance > maxDistanceToRoute) {
+          return null;
+        }
+
+        return {
+          line,
+          coords,
+          cumulative,
+          stopIndex: stopProjection.index,
+          stopDistance: stopProjection.distance,
+          sentido: normalizeSentido(line.sentido),
+          key: buildLineKey(line.numero, line.sentido),
+        } as LineMeta;
+      })
+      .filter((meta): meta is LineMeta => meta !== null);
+
+    if (!metas.length) {
+      return {};
+    }
+
+    const metaBuckets = new Map<string, LineMeta[]>();
+    const registerMeta = (key: string, meta: LineMeta) => {
+      if (!key) return;
+      const list = metaBuckets.get(key) ?? [];
+      if (!list.includes(meta)) {
+        list.push(meta);
+        metaBuckets.set(key, list);
+      }
+    };
+
+    metas.forEach(meta => {
+      const normalized = normalizeLineNumber(meta.line.numero);
+      const digits = normalized.replace(/[^0-9]/g, '');
+      const trimmedDigits = digits ? stripLeadingZeros(digits) : '';
+
+      [normalized, digits, trimmedDigits].forEach(key => registerMeta(key, meta));
+    });
+
+    const result: StopRealtimeArrivalsMap = {};
+
+    const pushArrival = (meta: LineMeta, etaMinutes: number, distance: number, bus: Bus, isApproaching: boolean, speedKmh: number) => {
+      const existing = result[meta.key] ?? { line: meta.line, arrivals: [] };
+      existing.arrivals.push({
+        bus,
+        etaMinutes,
+        distanceMeters: distance,
+        speedKmh,
+        isApproaching,
+      });
+      result[meta.key] = existing;
+    };
+
+    buses.forEach(bus => {
+      if (!bus || !isFinite(bus.latitude) || !isFinite(bus.longitude)) {
+        return;
+      }
+
+      const normalized = normalizeLineNumber(bus.linha);
+      const digits = normalized.replace(/[^0-9]/g, '');
+      const trimmedDigits = digits ? stripLeadingZeros(digits) : '';
+
+      const candidateMetas = new Set<LineMeta>();
+      [normalized, digits, trimmedDigits].forEach(key => {
+        const bucket = key ? metaBuckets.get(key) : undefined;
+        bucket?.forEach(meta => candidateMetas.add(meta));
+      });
+
+      if (!candidateMetas.size) {
+        return;
+      }
+
+      const busSentido = normalizeSentido(bus.sentido);
+
+      candidateMetas.forEach(meta => {
+        if (!matchesLineNumber(bus.linha, meta.line.numero)) {
+          return;
+        }
+
+        if (busSentido && meta.sentido && busSentido !== meta.sentido) {
+          return;
+        }
+
+        const projection = findNearestIndex(meta.coords, [bus.longitude, bus.latitude]);
+        if (projection.index === -1 || projection.distance > maxDistanceToRoute) {
+          return;
+        }
+
+        const busBeforeStop = projection.index <= meta.stopIndex;
+        if (!busBeforeStop) {
+          const gap = meta.cumulative[projection.index] - meta.cumulative[meta.stopIndex];
+          if (gap > 120) {
+            return;
+          }
+        }
+
+        let distanceAlong = busBeforeStop
+          ? meta.cumulative[meta.stopIndex] - meta.cumulative[projection.index]
+          : meta.cumulative[projection.index] - meta.cumulative[meta.stopIndex];
+
+        if (!isFinite(distanceAlong) || distanceAlong < 0) {
+          distanceAlong = this.haversineDistance(stop.latitude, stop.longitude, bus.latitude, bus.longitude);
+        }
+
+        if (!isFinite(distanceAlong) || distanceAlong < 0) {
+          return;
+        }
+
+        const speedKmh = typeof bus.velocidade === 'number'
+          ? bus.velocidade
+          : Number(bus.velocidade ?? 0);
+
+        const speedMs = speedKmh > 0 ? (speedKmh * 1000) / 3600 : 0;
+
+        let etaMinutes = speedMs > 0 ? distanceAlong / speedMs / 60 : null;
+        if (speedMs === 0) {
+          if (distanceAlong <= 60) {
+            etaMinutes = 0;
+          } else {
+            return;
+          }
+        }
+
+        if (etaMinutes == null || !isFinite(etaMinutes) || etaMinutes < 0) {
+          return;
+        }
+
+        if (etaMinutes > maxEtaMinutes) {
+          return;
+        }
+
+        const isApproaching = busBeforeStop || distanceAlong <= 60;
+        if (!isApproaching && etaMinutes > 2) {
+          return;
+        }
+
+        pushArrival(meta, etaMinutes, distanceAlong, bus, isApproaching, speedKmh);
+      });
+    });
+
+    Object.values(result).forEach(entry => {
+      entry.arrivals = entry.arrivals
+        .filter(arrival => arrival.etaMinutes >= 0 && arrival.etaMinutes <= maxEtaMinutes)
+        .sort((a, b) => a.etaMinutes - b.etaMinutes)
+        .slice(0, maxPerLine);
+    });
+
+    return result;
+  }
+
   // Cached version of getHorario
   async fetchHorario(): Promise<BusHorario[]> {
     const response = await this.makeRequest<HorarioApiProperties>(
@@ -955,6 +1202,31 @@ class ApiService {
       longitude >= west &&
       longitude <= east
     );
+  }
+
+  private createBoundsFromRadius(latitude: number, longitude: number, radiusMeters: number): MapBounds {
+    const earthRadius = 6378137; // meters
+    if (!isFinite(latitude) || !isFinite(longitude) || !isFinite(radiusMeters) || radiusMeters <= 0) {
+      return {
+        north: latitude,
+        south: latitude,
+        east: longitude,
+        west: longitude,
+      };
+    }
+
+    const dLat = (radiusMeters / earthRadius) * (180 / Math.PI);
+    const cosLat = Math.cos((latitude * Math.PI) / 180);
+    const dLng = cosLat === 0
+      ? 0
+      : (radiusMeters / earthRadius) * (180 / Math.PI) / cosLat;
+
+    return {
+      north: latitude + dLat,
+      south: latitude - dLat,
+      east: longitude + dLng,
+      west: longitude - dLng,
+    };
   }
 
   /**
