@@ -33,6 +33,11 @@ export const matchesLineNumber = (a?: string | number, b?: string | number): boo
 export const normalizeSentido = (value?: string): string => {
   if (!value) return '';
   const upper = value.toUpperCase().trim();
+  if (/^[0-9]+$/.test(upper)) {
+    // Some feeds provide numeric codes (e.g., "0", "1") which don’t map directly to the
+    // textual sentidos we use elsewhere. Treat them as unspecified so they don’t block matches.
+    return '';
+  }
   if (upper === 'IDA') return 'I';
   if (upper === 'VOLTA') return 'V';
   if (upper === 'RETORNO') return 'R';

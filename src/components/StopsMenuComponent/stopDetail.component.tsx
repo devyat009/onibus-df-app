@@ -144,6 +144,12 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
     return time.substring(0, 5); // Remove seconds if present
   };
 
+  type NormalizedSchedule = {
+    horario: string;
+    dias_semana: string;
+    dia_label?: string;
+  };
+
   const getNextSchedules = (horarios: any[], limit = 5) => {
     const now = new Date();
     const currentTime = now.getHours() * 60 + now.getMinutes();
@@ -153,28 +159,51 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
     // dias_semana format: "SSSSSNN" (Mon, Tue, Wed, Thu, Fri, Sat, Sun)
     const dayIndex = currentDay === 0 ? 6 : currentDay - 1;
 
-    // Filter and process all schedules for today
-    const todaySchedules = horarios
-      .filter(schedule => {
-        // Check if schedule object is valid
-        if (!schedule || typeof schedule !== 'object' || !schedule.horario) {
-          return false;
+    const normalizedSchedules = horarios
+      .map((item): NormalizedSchedule | null => {
+        if (!item) {
+          return null;
         }
-        // Check if this schedule applies to the current day
-        if (schedule.dias_semana && schedule.dias_semana.length === 7) {
-          return schedule.dias_semana[dayIndex] === 'S';
+
+        if (typeof item === 'string') {
+          return {
+            horario: item,
+            dias_semana: 'SSSSSSS',
+            dia_label: '',
+          };
         }
-        return false; // If no dias_semana info, exclude it to ensure only today's schedules
+
+        if (typeof item === 'object') {
+          const horario = item.horario || item.hr_prevista;
+          if (!horario) {
+            return null;
+          }
+          return {
+            horario,
+            dias_semana: typeof item.dias_semana === 'string' && item.dias_semana.length === 7
+              ? item.dias_semana
+              : 'SSSSSSS',
+            dia_label: item.dia_label || '',
+          };
+        }
+
+        return null;
       })
+      .filter((schedule): schedule is NormalizedSchedule => schedule !== null);
+
+    const todaySchedules = normalizedSchedules
+      .filter(schedule =>
+        schedule.dias_semana.length === 7 ? schedule.dias_semana[dayIndex] === 'S' : true
+      )
       .map(schedule => {
-        const timeStr = schedule.horario;
-        const [hours, minutes] = timeStr.split(':').map(Number);
+        const [hours, minutes] = schedule.horario.split(':').map(Number);
         const scheduleTime = hours * 60 + minutes;
-        return { 
-          hr_prevista: timeStr, 
-          scheduleTime, 
+        return {
+          hr_prevista: schedule.horario,
+          scheduleTime,
           dia_label: schedule.dia_label,
-          isPast: scheduleTime <= currentTime 
+          dias_semana: schedule.dias_semana,
+          isPast: scheduleTime <= currentTime,
         };
       })
       .filter(schedule => !isNaN(schedule.scheduleTime))
@@ -217,6 +246,7 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
 
     if (items.length < 3) {
       fallbackSchedules.forEach(schedule => {
+        if (!schedule) return;
         if (items.length >= 3) return;
 
         const [hours, minutes] = schedule.hr_prevista.split(':').map(Number);
@@ -422,7 +452,8 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
               const quantidadeHorarios = 3;
               const allHorarios = lineData.schedules.flatMap(schedule => schedule.horarios);
               const nextSchedules = getNextSchedules(allHorarios, quantidadeHorarios);
-              const hasFutureSchedules = nextSchedules.length > 0 && !nextSchedules[0].isPast;
+              const firstSchedule = nextSchedules[0];
+              const hasFutureSchedules = !!firstSchedule && !firstSchedule.isPast;
               
               return {
                 lineData,

@@ -807,137 +807,129 @@ class ApiService {
       radiusMeters?: number;
       maxPerLine?: number;
       maxEtaMinutes?: number;
-      maxDistanceToRoute?: number;
     }
   ): Promise<StopRealtimeArrivalsMap> {
-    if (!stop || !isFinite(stop.latitude) || !isFinite(stop.longitude) || !Array.isArray(lines) || lines.length === 0) {
+    if (!stop || !isFinite(stop.latitude) || !isFinite(stop.longitude)) {
+      console.warn('[RealtimeArrivals] Invalid stop data provided', {
+        stopId: stop?.codigo,
+        hasLatitude: isFinite(stop?.latitude ?? NaN),
+        hasLongitude: isFinite(stop?.longitude ?? NaN),
+        linesCount: Array.isArray(lines) ? lines.length : 'unknown'
+      });
+      return {};
+    }
+
+    if (!Array.isArray(lines) || lines.length === 0) {
+      console.warn('[RealtimeArrivals] No lines provided for realtime lookup', {
+        stopId: stop.codigo,
+        linesType: typeof lines,
+        received: lines
+      });
       return {};
     }
 
     const radiusMeters = options?.radiusMeters ?? 1500;
     const maxPerLine = options?.maxPerLine ?? 3;
     const maxEtaMinutes = options?.maxEtaMinutes ?? 90;
-    const maxDistanceToRoute = options?.maxDistanceToRoute ?? 600;
+
+    console.log('[RealtimeArrivals] Fetching realtime arrivals', {
+      stopId: stop.codigo,
+      stopName: stop.nome,
+      linesCount: lines.length,
+      radiusMeters,
+      maxPerLine,
+      maxEtaMinutes
+    });
 
     const bounds = this.createBoundsFromRadius(stop.latitude, stop.longitude, radiusMeters);
+    console.log('[RealtimeArrivals] Calculated bounds for stop', bounds);
     const buses = await this.getBuses(bounds);
+    console.log('[RealtimeArrivals] Buses fetched for bounds', {
+      totalBuses: buses.length,
+      bounds
+    });
 
     if (!buses.length) {
+      console.log('[RealtimeArrivals] No buses returned within bounds');
       return {};
     }
 
-    type LineMeta = {
+    type LineDescriptor = {
       line: BusLineV2;
-      coords: [number, number][];
-      cumulative: number[];
-      stopIndex: number;
-      stopDistance: number;
       sentido: string;
       key: string;
+      normalized: string;
+      digits: string;
+      trimmed: string;
     };
+    const descriptors: LineDescriptor[] = lines.map(line => {
+      const normalized = normalizeLineNumber(line.numero);
+      const digits = normalized.replace(/[^0-9]/g, '');
+      const trimmed = digits ? stripLeadingZeros(digits) : '';
+      return {
+        line,
+        sentido: normalizeSentido(line.sentido),
+        key: buildLineKey(line.numero, line.sentido),
+        normalized,
+        digits,
+        trimmed,
+      };
+    });
 
-    const flattenLineCoordinates = (line: BusLineV2): [number, number][] => {
-      const coords: [number, number][] = [];
-      for (const geom of line.geolinhas) {
-        if (!geom || !geom.coordinates) continue;
-
-        if (geom.type === 'LineString' && Array.isArray(geom.coordinates)) {
-          (geom.coordinates as any[]).forEach(point => {
-            if (Array.isArray(point) && point.length >= 2) {
-              coords.push([Number(point[0]), Number(point[1])]);
-            }
-          });
-        } else if (geom.type === 'MultiLineString' && Array.isArray(geom.coordinates)) {
-          (geom.coordinates as any[]).forEach((segment: any) => {
-            if (Array.isArray(segment)) {
-              segment.forEach((point: any) => {
-                if (Array.isArray(point) && point.length >= 2) {
-                  coords.push([Number(point[0]), Number(point[1])]);
-                }
-              });
-            }
-          });
-        }
-      }
-      return coords;
-    };
-
-    const computeCumulativeDistances = (coords: [number, number][]): number[] => {
-      const cumulative: number[] = [0];
-      for (let i = 1; i < coords.length; i++) {
-        const [prevLng, prevLat] = coords[i - 1];
-        const [lng, lat] = coords[i];
-        const segment = this.haversineDistance(prevLat, prevLng, lat, lng);
-        cumulative[i] = cumulative[i - 1] + (isFinite(segment) ? segment : 0);
-      }
-      return cumulative;
-    };
-
-    const findNearestIndex = (coords: [number, number][], point: [number, number]) => {
-      let bestIndex = -1;
-      let bestDistance = Number.POSITIVE_INFINITY;
-      coords.forEach(([lng, lat], index) => {
-        const distance = this.haversineDistance(lat, lng, point[1], point[0]);
-        if (distance < bestDistance) {
-          bestDistance = distance;
-          bestIndex = index;
-        }
+    if (!descriptors.length) {
+      console.warn('[RealtimeArrivals] Failed to build descriptors for lines', {
+        stopId: stop.codigo,
+        lines
       });
-      return { index: bestIndex, distance: bestDistance };
-    };
-
-    const metas: LineMeta[] = lines
-      .map(line => {
-        const coords = flattenLineCoordinates(line);
-        if (!coords || coords.length < 2) {
-          return null;
-        }
-
-        const cumulative = computeCumulativeDistances(coords);
-        const stopProjection = findNearestIndex(coords, [stop.longitude, stop.latitude]);
-
-        if (stopProjection.index === -1 || stopProjection.distance > maxDistanceToRoute) {
-          return null;
-        }
-
-        return {
-          line,
-          coords,
-          cumulative,
-          stopIndex: stopProjection.index,
-          stopDistance: stopProjection.distance,
-          sentido: normalizeSentido(line.sentido),
-          key: buildLineKey(line.numero, line.sentido),
-        } as LineMeta;
-      })
-      .filter((meta): meta is LineMeta => meta !== null);
-
-    if (!metas.length) {
       return {};
     }
 
-    const metaBuckets = new Map<string, LineMeta[]>();
-    const registerMeta = (key: string, meta: LineMeta) => {
+    console.log('[RealtimeArrivals] Built line descriptors', {
+      descriptorCount: descriptors.length,
+      descriptorKeys: descriptors.map(descriptor => descriptor.key)
+    });
+
+    const descriptorBuckets = new Map<string, LineDescriptor[]>();
+    const registerDescriptor = (key: string, descriptor: LineDescriptor) => {
       if (!key) return;
-      const list = metaBuckets.get(key) ?? [];
-      if (!list.includes(meta)) {
-        list.push(meta);
-        metaBuckets.set(key, list);
+      const list = descriptorBuckets.get(key) ?? [];
+      if (!list.includes(descriptor)) {
+        list.push(descriptor);
+        descriptorBuckets.set(key, list);
       }
     };
 
-    metas.forEach(meta => {
-      const normalized = normalizeLineNumber(meta.line.numero);
-      const digits = normalized.replace(/[^0-9]/g, '');
-      const trimmedDigits = digits ? stripLeadingZeros(digits) : '';
-
-      [normalized, digits, trimmedDigits].forEach(key => registerMeta(key, meta));
+    descriptors.forEach(descriptor => {
+      [descriptor.normalized, descriptor.digits, descriptor.trimmed].forEach(key => registerDescriptor(key, descriptor));
     });
 
     const result: StopRealtimeArrivalsMap = {};
+    const stats = {
+      totalBuses: buses.length,
+      missingCoords: 0,
+      noDescriptor: 0,
+      outsideRadius: 0,
+      speedZeroTooFar: 0,
+      etaOutOfRange: 0,
+      sentidoMismatch: 0,
+      lineMismatch: 0,
+      matched: 0,
+      fallbackMatches: 0,
+    };
+    const samples: {
+      noDescriptor: any[];
+      lineMismatch: any[];
+      sentidoMismatch: any[];
+      speedZeroTooFar: any[];
+    } = {
+      noDescriptor: [],
+      lineMismatch: [],
+      sentidoMismatch: [],
+      speedZeroTooFar: [],
+    };
 
-    const pushArrival = (meta: LineMeta, etaMinutes: number, distance: number, bus: Bus, isApproaching: boolean, speedKmh: number) => {
-      const existing = result[meta.key] ?? { line: meta.line, arrivals: [] };
+    const pushArrival = (descriptor: LineDescriptor, etaMinutes: number, distance: number, bus: Bus, isApproaching: boolean, speedKmh: number) => {
+      const existing = result[descriptor.key] ?? { line: descriptor.line, arrivals: [] };
       existing.arrivals.push({
         bus,
         etaMinutes,
@@ -945,11 +937,12 @@ class ApiService {
         speedKmh,
         isApproaching,
       });
-      result[meta.key] = existing;
+      result[descriptor.key] = existing;
     };
 
     buses.forEach(bus => {
       if (!bus || !isFinite(bus.latitude) || !isFinite(bus.longitude)) {
+        stats.missingCoords += 1;
         return;
       }
 
@@ -957,81 +950,149 @@ class ApiService {
       const digits = normalized.replace(/[^0-9]/g, '');
       const trimmedDigits = digits ? stripLeadingZeros(digits) : '';
 
-      const candidateMetas = new Set<LineMeta>();
+      const candidateDescriptors = new Set<LineDescriptor>();
       [normalized, digits, trimmedDigits].forEach(key => {
-        const bucket = key ? metaBuckets.get(key) : undefined;
-        bucket?.forEach(meta => candidateMetas.add(meta));
+        const bucket = key ? descriptorBuckets.get(key) : undefined;
+        bucket?.forEach(descriptor => candidateDescriptors.add(descriptor));
       });
 
-      if (!candidateMetas.size) {
-        return;
+      if (!candidateDescriptors.size) {
+        const fallbackMatches = descriptors.filter(descriptor => {
+          if (!descriptor.digits && !descriptor.trimmed) return false;
+          const descriptorDigits = descriptor.digits || '';
+          const descriptorTrimmed = descriptor.trimmed || '';
+          const busDigitsVariants = [digits, trimmedDigits]
+            .filter(Boolean) as string[];
+
+          return busDigitsVariants.some(busDigitsValue => {
+            if (!busDigitsValue) return false;
+            if (descriptorDigits === busDigitsValue) return true;
+            if (descriptorTrimmed && descriptorTrimmed === busDigitsValue) return true;
+            if (busDigitsValue.length >= 3 && descriptorDigits.endsWith(busDigitsValue)) return true;
+            if (descriptorDigits.length >= 3 && busDigitsValue.endsWith(descriptorDigits)) return true;
+            if (busDigitsValue.length >= 3 && descriptorTrimmed.endsWith(busDigitsValue)) return true;
+            if (descriptorTrimmed.length >= 3 && busDigitsValue.endsWith(descriptorTrimmed)) return true;
+            return false;
+          });
+        });
+
+        if (fallbackMatches.length === 1) {
+          const [chosenDescriptor] = fallbackMatches;
+          stats.fallbackMatches += 1;
+          candidateDescriptors.add(chosenDescriptor);
+          console.log('[RealtimeArrivals] Using fallback match for bus line', JSON.stringify({
+            busId: bus.prefixo,
+            rawLinha: bus.linha,
+            normalized,
+            digits,
+            trimmedDigits,
+            chosenDescriptor: {
+              numero: chosenDescriptor.line.numero,
+              sentido: chosenDescriptor.line.sentido,
+              key: chosenDescriptor.key,
+              digits: chosenDescriptor.digits,
+              trimmed: chosenDescriptor.trimmed,
+            }
+          }));
+        } else {
+          stats.noDescriptor += 1;
+          if (samples.noDescriptor.length < 5) {
+            samples.noDescriptor.push({
+              busId: bus.prefixo,
+              rawLinha: bus.linha,
+              normalized,
+              digits,
+              trimmedDigits,
+              sentido: bus.sentido,
+              fallbackMatches: fallbackMatches.map(match => ({
+                numero: match.line.numero,
+                sentido: match.line.sentido,
+                key: match.key,
+                digits: match.digits,
+              }))
+            });
+            console.warn('[RealtimeArrivals] No descriptor candidate', JSON.stringify(samples.noDescriptor[samples.noDescriptor.length - 1]));
+          }
+          return;
+        }
       }
 
       const busSentido = normalizeSentido(bus.sentido);
+      const distanceToStop = this.haversineDistance(stop.latitude, stop.longitude, bus.latitude, bus.longitude);
+      if (!isFinite(distanceToStop) || distanceToStop > radiusMeters) {
+        stats.outsideRadius += 1;
+        return;
+      }
 
-      candidateMetas.forEach(meta => {
-        if (!matchesLineNumber(bus.linha, meta.line.numero)) {
-          return;
-        }
+      const speedKmh = typeof bus.velocidade === 'number'
+        ? bus.velocidade
+        : Number(bus.velocidade ?? 0);
+      const speedMs = speedKmh > 0 ? (speedKmh * 1000) / 3600 : 0;
 
-        if (busSentido && meta.sentido && busSentido !== meta.sentido) {
-          return;
-        }
-
-        const projection = findNearestIndex(meta.coords, [bus.longitude, bus.latitude]);
-        if (projection.index === -1 || projection.distance > maxDistanceToRoute) {
-          return;
-        }
-
-        const busBeforeStop = projection.index <= meta.stopIndex;
-        if (!busBeforeStop) {
-          const gap = meta.cumulative[projection.index] - meta.cumulative[meta.stopIndex];
-          if (gap > 120) {
-            return;
+      let etaMinutes: number | null;
+      if (speedMs <= 0.3) {
+        // Very low or zero speed: treat as arrived if extremely close
+        if (distanceToStop <= 80) {
+          etaMinutes = 0;
+        } else {
+          stats.speedZeroTooFar += 1;
+          if (samples.speedZeroTooFar.length < 5) {
+            samples.speedZeroTooFar.push({
+              busId: bus.prefixo,
+              rawLinha: bus.linha,
+              distanceToStop: Math.round(distanceToStop),
+              speedKmh,
+              sentido: bus.sentido
+            });
+            console.warn('[RealtimeArrivals] Slow bus too far from stop', JSON.stringify(samples.speedZeroTooFar[samples.speedZeroTooFar.length - 1]));
           }
-        }
-
-        let distanceAlong = busBeforeStop
-          ? meta.cumulative[meta.stopIndex] - meta.cumulative[projection.index]
-          : meta.cumulative[projection.index] - meta.cumulative[meta.stopIndex];
-
-        if (!isFinite(distanceAlong) || distanceAlong < 0) {
-          distanceAlong = this.haversineDistance(stop.latitude, stop.longitude, bus.latitude, bus.longitude);
-        }
-
-        if (!isFinite(distanceAlong) || distanceAlong < 0) {
           return;
         }
+      } else {
+        etaMinutes = distanceToStop / speedMs / 60;
+      }
 
-        const speedKmh = typeof bus.velocidade === 'number'
-          ? bus.velocidade
-          : Number(bus.velocidade ?? 0);
+      if (etaMinutes == null || !isFinite(etaMinutes) || etaMinutes < 0 || etaMinutes > maxEtaMinutes) {
+        stats.etaOutOfRange += 1;
+        return;
+      }
 
-        const speedMs = speedKmh > 0 ? (speedKmh * 1000) / 3600 : 0;
+      const etaValue = etaMinutes;
+      const isApproaching = distanceToStop <= 120 || etaValue <= 2;
 
-        let etaMinutes = speedMs > 0 ? distanceAlong / speedMs / 60 : null;
-        if (speedMs === 0) {
-          if (distanceAlong <= 60) {
-            etaMinutes = 0;
-          } else {
-            return;
+      candidateDescriptors.forEach(descriptor => {
+        if (!matchesLineNumber(bus.linha, descriptor.line.numero)) {
+          stats.lineMismatch += 1;
+          if (samples.lineMismatch.length < 5) {
+            samples.lineMismatch.push({
+              busId: bus.prefixo,
+              rawLinha: bus.linha,
+              normalizedLinha: normalized,
+              descriptorNumero: descriptor.line.numero,
+              descriptorKey: descriptor.key
+            });
+            console.warn('[RealtimeArrivals] Line mismatch candidate', JSON.stringify(samples.lineMismatch[samples.lineMismatch.length - 1]));
           }
-        }
-
-        if (etaMinutes == null || !isFinite(etaMinutes) || etaMinutes < 0) {
           return;
         }
 
-        if (etaMinutes > maxEtaMinutes) {
+        if (busSentido && descriptor.sentido && busSentido !== descriptor.sentido) {
+          stats.sentidoMismatch += 1;
+          if (samples.sentidoMismatch.length < 5) {
+            samples.sentidoMismatch.push({
+              busId: bus.prefixo,
+              rawLinha: bus.linha,
+              busSentido,
+              descriptorSentido: descriptor.sentido,
+              descriptorKey: descriptor.key
+            });
+            console.warn('[RealtimeArrivals] Sentido mismatch', JSON.stringify(samples.sentidoMismatch[samples.sentidoMismatch.length - 1]));
+          }
           return;
         }
 
-        const isApproaching = busBeforeStop || distanceAlong <= 60;
-        if (!isApproaching && etaMinutes > 2) {
-          return;
-        }
-
-        pushArrival(meta, etaMinutes, distanceAlong, bus, isApproaching, speedKmh);
+        pushArrival(descriptor, etaValue, distanceToStop, bus, isApproaching, speedKmh);
+        stats.matched += 1;
       });
     });
 
@@ -1041,6 +1102,21 @@ class ApiService {
         .sort((a, b) => a.etaMinutes - b.etaMinutes)
         .slice(0, maxPerLine);
     });
+
+    console.log('[RealtimeArrivals] Matching summary', {
+      stopId: stop.codigo,
+      linesEvaluated: descriptors.length,
+      resultLineCount: Object.keys(result).length,
+      stats,
+      samples
+    });
+    console.log('[RealtimeArrivals] Matching summary (json)', JSON.stringify({
+      stopId: stop.codigo,
+      linesEvaluated: descriptors.length,
+      resultLineCount: Object.keys(result).length,
+      stats,
+      samples
+    }, null, 2));
 
     return result;
   }
