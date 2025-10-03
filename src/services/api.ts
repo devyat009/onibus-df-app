@@ -64,7 +64,7 @@ export class ApiService {
           url += `&bbox=${bbox}&srsName=EPSG:4326`;
         }
       }
-      console.warn(`[ApiService] Fetching URL: ${url}`);
+
       const response = await fetch(url, {
         headers: {
           'Accept': 'application/json',
