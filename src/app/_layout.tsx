@@ -2,7 +2,7 @@ import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useState } from "react";
 import { SafeAreaView, StyleSheet, View } from "react-native";
 import BottomNavbar from "../components/NavBarComponent/bottom-navbar.component";
-import { apiService } from '../services/api';
+import { busService, frotaService, stopService } from '../services/api';
 import { useAppStore } from "../store";
 import Index from "./index";
 import Settings from "./settings";
@@ -16,9 +16,9 @@ const RootLayout = () => {
   useEffect(() => {
     const fetchData = async () => {
       await Promise.all([
-        apiService.getLinesV2Cached().catch(console.error),
-        apiService.getHorarioV2Cached().catch(console.error),
-        apiService.getFrotaCached().catch(console.error),
+        busService.getLinesV2Cached().catch(console.error),
+        stopService.getHorarioV2Cached().catch(console.error),
+        frotaService.getFrotaCached().catch(console.error),
       ]);
     };
     fetchData();

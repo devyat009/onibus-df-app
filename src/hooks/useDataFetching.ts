@@ -1,5 +1,5 @@
 import { useCallback, useEffect } from 'react';
-import { ApiError, apiService } from '../services/api';
+import { ApiError, busService, stopService } from '../services/api';
 import { useAppStore } from '../store';
 import { MapBounds } from '../types';
 import appConfig from '../utils/config';
@@ -27,7 +27,7 @@ export const useDataFetching = () => {
     setError('buses', null);
 
     try {
-      const buses = await apiService.getBuses(bounds);
+      const buses = await busService.getBuses(bounds);
       setBuses(buses);
     } catch (error) {
       const message = error instanceof ApiError 
@@ -47,7 +47,7 @@ export const useDataFetching = () => {
     setError('stops', null);
 
     try {
-      const stops = await apiService.getStops(bounds);
+      const stops = await stopService.getStops(bounds);
       setStops(stops);
     } catch (error) {
       const message = error instanceof ApiError 
@@ -67,7 +67,7 @@ export const useDataFetching = () => {
     setError('lines', null);
 
     try {
-      const lines = await apiService.getLines();
+      const lines = await busService.getLines();
       setLines(lines);
     } catch (error) {
       const message = error instanceof ApiError 

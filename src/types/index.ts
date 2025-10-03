@@ -203,7 +203,7 @@ export interface BusApiProperties {
 }
 
 // New bus position API response types
-export interface NewBusApiResponse {
+export interface NewBusGeoApiResponse {
   type: 'FeatureCollection';
   NomeOperadora: string;
   features: {

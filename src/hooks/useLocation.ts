@@ -77,7 +77,7 @@ export const useLocation = () => {
       const subscription = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.Balanced,
-          timeInterval: 10000, // Update every 10 seconds
+          timeInterval: 5000, // Update every 5 seconds
           distanceInterval: 5, // Update every 5 meters
         },
         (location) => {

@@ -1,5 +1,5 @@
 import { useBusFavorites, useStopFavorites } from '@/src/hooks/useFavorites';
-import { apiService } from '@/src/services/api';
+import { busService, stopService } from '@/src/services/api';
 import { useAppStore } from '@/src/store';
 import { BusLineV2, BusStop, StopRealtimeArrivalsMap, StopScheduleV2 } from '@/src/types';
 import { buildLineKey } from '@/src/utils/lineUtils';
@@ -58,7 +58,7 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
     try {
       setLoading(true);
       setError(null);
-      const data = await apiService.getStopScheduleV2(stop);
+      const data = await stopService.getStopScheduleV2(stop);
       // console.log('[STOPDETAIL] Loaded stop schedule V2:', data);
       setScheduleData(data);
     } catch (err) {
@@ -75,7 +75,7 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
         setLoading(true);
         setError(null);
 
-        const data = await apiService.getStopScheduleV2(stop);
+        const data = await stopService.getStopScheduleV2(stop);
         console.warn('[STOPDETAIL2] Loaded stop schedule V2:', data.lines[0]);
         setScheduleData(data);
       } catch (err) {
@@ -109,7 +109,7 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
         }
 
         const lines = scheduleData.lines.map(item => item.line);
-        const realtime = await apiService.getRealtimeArrivalsForStop(stop, lines, {
+        const realtime = await busService.getRealtimeArrivalsForStop(stop, lines, {
           radiusMeters: 2000,
           maxPerLine: 3,
           maxEtaMinutes: 90,

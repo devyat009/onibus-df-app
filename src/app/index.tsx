@@ -1,4 +1,4 @@
-import { apiService } from '@/src/services/api';
+import { busService, stopService } from '@/src/services/api';
 import { useAppStore } from '@/src/store';
 import { BusStop } from '@/src/types';
 import { Ionicons } from '@expo/vector-icons';
@@ -300,7 +300,7 @@ export default function Index() {
   // Fetch stops when changing bounds
   useEffect(() => {
     if (!bounds || (userMapZoom ?? 0) < STOPS_ZOOM_THRESHOLD) return;
-    apiService.getStops(bounds)
+    stopService.getStops(bounds)
       .then(setStops)
       .catch((error) => {
         console.error('Error fetching bus stops:', error);
@@ -323,7 +323,7 @@ export default function Index() {
       fetchingBusesRef.current = true;
       setIsFetchingBuses(true);
       try {
-        const result = await apiService.getEnhancedBuses(bounds);
+        const result = await busService.getEnhancedBuses(bounds);
         const filteredBuses = showOnlyActiveBuses
           ? result.filter(bus => bus.linha && bus.linha.trim())
           : result;

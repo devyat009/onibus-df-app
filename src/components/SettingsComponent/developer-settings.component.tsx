@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useState } from 'react';
 import { LayoutAnimation, Modal, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, UIManager, View } from 'react-native';
-import { apiService } from '../../services/api';
+import { busService, frotaService, stopService } from '../../services/api';
 import { wazeTrafficService } from '../../services/wazeApi';
 import { useAppStore } from '../../store';
 import { clearAllCache } from '../../utils/cacheManager';
@@ -87,24 +87,24 @@ const DeveloperOptions = () => {
       switch (key) {
         case 'buses':
           // Use the store value to determine the filter
-          data = await apiService.getBuses(undefined, busTimeFilter);
+          data = await busService.getBuses(undefined, busTimeFilter);
           break;
 
         case 'busesEnhanced':
           // Use the store value to determine the filter
-          data = await apiService.getEnhancedBuses(undefined, busTimeFilter);
+          data = await busService.getEnhancedBuses(undefined, busTimeFilter);
           break;
 
         case 'stops':
-          data = await apiService.getStops(DEFAULT_BOUNDS);
+          data = await stopService.getStops(DEFAULT_BOUNDS);
           break;
 
         case 'lines':
-          data = await apiService.getLinesV2Cached();
+          data = await busService.getLinesV2Cached();
           break;
 
         case 'frota':
-          data = await apiService.getFrotaCached();
+          data = await frotaService.getFrotaCached();
           break;
 
         case 'wazeTraffic':

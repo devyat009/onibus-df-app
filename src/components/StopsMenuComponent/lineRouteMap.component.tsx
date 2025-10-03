@@ -1,4 +1,4 @@
-import { apiService } from '@/src/services/api';
+import { busService, stopService } from '@/src/services/api';
 import { useAppStore } from '@/src/store';
 import { BusLineV2, BusStop, EnhancedBus } from '@/src/types';
 import { matchesLineNumber } from '@/src/utils/lineUtils';
@@ -50,9 +50,9 @@ const LineRouteMap: React.FC<LineRouteMapProps> = ({ line, currentStop, onBack }
 
         // Get all stops data to find which ones are on this route
         const [allStopsData, allStops, enhancedBuses] = await Promise.all([
-          apiService.getStopDadosCached(),
-          apiService.getStops(),
-          apiService.getEnhancedBuses(undefined, '30min'),
+          stopService.getStopDadosCached(),
+          stopService.getStops(),
+          busService.getEnhancedBuses(undefined, '30min'),
         ]);
 
         // Find stops that have this line
@@ -122,7 +122,7 @@ const LineRouteMap: React.FC<LineRouteMapProps> = ({ line, currentStop, onBack }
 
     const interval = setInterval(async () => {
       try {
-        const enhancedBuses = await apiService.getEnhancedBuses(undefined, '30min');
+        const enhancedBuses = await busService.getEnhancedBuses(undefined, '30min');
         
         const lineBuses = enhancedBuses.filter(bus => matchesLineNumber(bus.linha, line.numero));
         
