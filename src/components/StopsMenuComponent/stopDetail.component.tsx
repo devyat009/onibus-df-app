@@ -1,4 +1,4 @@
-import { useStopFavorites } from '@/src/hooks/useFavorites';
+import { useBusFavorites, useStopFavorites } from '@/src/hooks/useFavorites';
 import { apiService } from '@/src/services/api';
 import { useAppStore } from '@/src/store';
 import { BusStop, StopRealtimeArrivalsMap, StopScheduleV2 } from '@/src/types';
@@ -38,6 +38,7 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
 
   // Favorites using custom hook
   const { isFavorite, toggleFavorite } = useStopFavorites();
+  const { isFavorite: isBusFavorite, toggleFavorite: toggleBusFavorite } = useBusFavorites();
 
   // Check if the current stop is a favorite
   const isCurrentStopFavorite = stop?.id ? isFavorite(stop.id) : false;
@@ -447,30 +448,90 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
         )}
         {scheduleData && scheduleData.lines.length > 0 ? (
           (() => {
-            // Process all lines and their schedules
-            const linesWithSchedules = scheduleData.lines.map((lineData, index) => {
+            // Group lines by line number to avoid duplicates
+            const lineGroups = new Map<string, typeof scheduleData.lines>();
+            scheduleData.lines.forEach(lineData => {
+              const lineNumber = lineData.line.numero;
+              if (!lineGroups.has(lineNumber)) {
+                lineGroups.set(lineNumber, []);
+              }
+              lineGroups.get(lineNumber)!.push(lineData);
+            });
+
+            // Process each unique line (consolidate multiple entries)
+            const linesWithSchedules = Array.from(lineGroups.entries()).map(([lineNumber, lineDatas]) => {
               const quantidadeHorarios = 3;
-              const allHorarios = lineData.schedules.flatMap(schedule => schedule.horarios);
+              // Merge all schedules from all line data entries (different sentidos/times)
+              const allHorarios = lineDatas.flatMap(ld => 
+                ld.schedules.flatMap(schedule => schedule.horarios)
+              );
               const nextSchedules = getNextSchedules(allHorarios, quantidadeHorarios);
               const firstSchedule = nextSchedules[0];
               const hasFutureSchedules = !!firstSchedule && !firstSchedule.isPast;
               
+              // Use the first lineData as representative
+              const lineData = lineDatas[0];
+              
+              // Build display items to check if has realtime
+              const lineKey = buildLineKey(lineData.line.numero, lineData.line.sentido);
+              const realtimeItems = realtimeArrivals[lineKey]?.arrivals ?? [];
+              const hasRealtime = realtimeItems.length > 0;
+              
+              // Check if line is favorite
+              const isFavorite = isBusFavorite(lineData.line.numero);
+              
+              // Get the minimum ETA for sorting
+              let minEta = Infinity;
+              if (hasRealtime) {
+                minEta = Math.min(...realtimeItems.map(a => a.etaMinutes));
+              } else if (hasFutureSchedules && firstSchedule) {
+                const [hours, minutes] = firstSchedule.hr_prevista.split(':').map(Number);
+                const now = new Date();
+                const scheduleDate = new Date(now);
+                scheduleDate.setHours(hours, minutes, 0, 0);
+                minEta = Math.round((scheduleDate.getTime() - now.getTime()) / 60000);
+              }
+              
               return {
                 lineData,
-                index,
+                index: 0,
                 nextSchedules,
                 hasFutureSchedules,
+                hasRealtime,
+                minEta,
+                isFavorite,
               };
             });
 
-            // Sort: lines with future schedules first, then lines with past schedules
+            // Sort by priority:
+            // 1. Favorite lines (but only if they haven't passed yet)
+            // 2. Has realtime data
+            // 3. Minimum ETA (smaller first)
+            // 4. Has future schedules
             const sortedLines = linesWithSchedules.sort((a, b) => {
+              // Priority 1: Favorites first (but only if they haven't passed)
+              const aFavoriteAndActive = a.isFavorite && a.hasFutureSchedules;
+              const bFavoriteAndActive = b.isFavorite && b.hasFutureSchedules;
+              if (aFavoriteAndActive && !bFavoriteAndActive) return -1;
+              if (!aFavoriteAndActive && bFavoriteAndActive) return 1;
+              
+              // Priority 2: Realtime first
+              if (a.hasRealtime && !b.hasRealtime) return -1;
+              if (!a.hasRealtime && b.hasRealtime) return 1;
+              
+              // Priority 3: Sort by minimum ETA
+              if (a.minEta !== b.minEta) {
+                return a.minEta - b.minEta;
+              }
+              
+              // Priority 4: Future schedules before past
               if (a.hasFutureSchedules && !b.hasFutureSchedules) return -1;
               if (!a.hasFutureSchedules && b.hasFutureSchedules) return 1;
+              
               return 0;
             });
 
-            return sortedLines.map(({ lineData, index, nextSchedules }) => (
+            return sortedLines.map(({ lineData, index, nextSchedules, isFavorite }) => (
               <View
                 key={`line-${lineData.line.numero}-${lineData.line.sentido}-${index}`}
                 style={[
@@ -530,6 +591,26 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
                       return (
                         <View style={styles.compactScheduleCard}>
                           <View style={styles.scheduleRowContainer}>
+                            {/* Favorite button */}
+                            <View style={styles.routeButtonBox}>
+                              <TouchableOpacity
+                                style={[
+                                  styles.routeIconSquare,
+                                  isFavorite
+                                    ? { backgroundColor: '#FFD600', borderColor: '#FFD600' }
+                                    : { backgroundColor: appTheme === 'dark' ? '#242424ff' : '#f0f0f0' }
+                                ]}
+                                onPress={() => toggleBusFavorite(lineData.line.numero)}
+                                activeOpacity={0.7}
+                              >
+                                <MaterialIcons
+                                  name={isFavorite ? "bookmark" : "bookmark-outline"}
+                                  size={22}
+                                  color={isFavorite ? '#fff' : '#007AFF'}
+                                />
+                              </TouchableOpacity>
+                            </View>
+
                             {/* Route button */}
                             <View style={styles.routeButtonBox}>
                               <TouchableOpacity
