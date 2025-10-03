@@ -51,16 +51,20 @@ export class ApiService {
         const maxY = Math.max(bounds.south, bounds.north).toFixed(8);
 
 
-        if (endpoint === appConfig.api.endpoints.geoParadas2025 || endpoint === appConfig.api.endpoints.geoOnibusPosicao) {
-          // Use CQL_FILTER with INTERSECTS polygon for geoParadas2025
-          // Format: POLYGON((lon lat,lon lat,lon lat,lon lat,lon lat))
+        if (endpoint === appConfig.api.endpoints.geoParadas2025) {
+          const bbox = `${minX},${minY},${maxX},${maxY},EPSG:4326`;
+          url += `&bbox=${bbox}&srsName=EPSG:4326`;
+        } else if (endpoint === appConfig.api.endpoints.geoOnibusPosicao) {
+          // CQL_FILTER
           const polygon = `POLYGON((${minX} ${minY},${maxX} ${minY},${maxX} ${maxY},${minX} ${maxY},${minX} ${minY}))`;
           url += `&CQL_FILTER=INTERSECTS(geom_point,${encodeURIComponent(polygon)})`;
         } else {
-        const bbox = `${minX},${minY},${maxX},${maxY},EPSG:4326`;
-        url += `&bbox=${bbox}&srsName=EPSG:4326`;
+          // Default bbox parameter for other geoserver endpoints
+          const bbox = `${minX},${minY},${maxX},${maxY},EPSG:4326`;
+          url += `&bbox=${bbox}&srsName=EPSG:4326`;
         }
       }
+      console.warn(`[ApiService] Fetching URL: ${url}`);
       const response = await fetch(url, {
         headers: {
           'Accept': 'application/json',
