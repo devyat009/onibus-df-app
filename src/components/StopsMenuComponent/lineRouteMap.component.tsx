@@ -1,7 +1,7 @@
 import { busService, stopService } from '@/src/services/api';
 import { useAppStore } from '@/src/store';
 import { BusLineV2, BusStop, EnhancedBus } from '@/src/types';
-import { haversineDistance2 } from '@/src/utils/geoUtils';
+import { haversineDistance2, utmToLatLngZone23S } from '@/src/utils/geoUtils';
 import { matchesLineNumber } from '@/src/utils/lineUtils';
 import { MaterialIcons } from '@expo/vector-icons';
 import MapLibreGL from '@maplibre/maplibre-react-native';
@@ -211,12 +211,12 @@ const LineRouteMap: React.FC<LineRouteMapProps> = ({ line, currentStop, onBack }
   }, [stops, currentStop]);
 
   const visibleBuses = useMemo(() => {
-    return buses.filter(bus => {
-      if (!Number.isFinite(bus.longitude) || !Number.isFinite(bus.latitude)) {
-        return false;
-      }
-      return true;
-    });
+    return buses
+      .map(bus => {
+        const { lng, lat } = utmToLatLngZone23S(bus.longitude, bus.latitude);
+        return { ...bus, longitude: lng, latitude: lat };
+      })
+      .filter(bus => isValidCoordinate([bus.longitude, bus.latitude]));
   }, [buses]);
 
   function isValidCoordinate([lng, lat]: [number, number]) {
