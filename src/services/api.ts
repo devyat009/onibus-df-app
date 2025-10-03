@@ -36,7 +36,7 @@ export class ApiService {
       
       if (useGeoserver) {
         // Use geoserver for legacy endpoints
-        const geoserverUrl = appConfig.api.geoserverUrl || 'http://geoserver.semob.df.gov.br/geoserver/semob/ows';
+        const geoserverUrl = appConfig.api.geoserverUrl;
         url = `${geoserverUrl}?${endpoint}`;
       } else {
         // Use new API baseUrl for new endpoints
@@ -51,14 +51,16 @@ export class ApiService {
         const maxY = Math.max(bounds.south, bounds.north).toFixed(8);
 
 
-        if (endpoint === appConfig.api.endpoints.geoParadas2025) {
+        if (endpoint === appConfig.api.endpoints.geoParadas2025 || endpoint === appConfig.api.endpoints.geoOnibusPosicao) {
           const bbox = `${minX},${minY},${maxX},${maxY},EPSG:4326`;
           url += `&bbox=${bbox}&srsName=EPSG:4326`;
-        } else if (endpoint === appConfig.api.endpoints.geoOnibusPosicao) {
-          // CQL_FILTER
-          const polygon = `POLYGON((${minX} ${minY},${maxX} ${minY},${maxX} ${maxY},${minX} ${maxY},${minX} ${minY}))`;
-          url += `&CQL_FILTER=INTERSECTS(geom_point,${encodeURIComponent(polygon)})`;
-        } else {
+        }
+        // else if (endpoint === appConfig.api.endpoints.geoOnibusPosicao) {
+        //   // CQL_FILTER
+        //   const polygon = `POLYGON((${minX} ${minY},${maxX} ${minY},${maxX} ${maxY},${minX} ${maxY},${minX} ${minY}))`;
+        //   url += `&CQL_FILTER=INTERSECTS(geom_point,${encodeURIComponent(polygon)})`;
+        // }
+        else {
           // Default bbox parameter for other geoserver endpoints
           const bbox = `${minX},${minY},${maxX},${maxY},EPSG:4326`;
           url += `&bbox=${bbox}&srsName=EPSG:4326`;
