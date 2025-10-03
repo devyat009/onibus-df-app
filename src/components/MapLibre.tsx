@@ -377,6 +377,19 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
     };
   }, []);
 
+  // Max number of stops and buses to render
+  const MAX_STOPS = 50;
+  const MAX_BUSES = 100;
+
+  // Filter stops and buses to render based on current zoom
+  const stopsToRender = useMemo(() => {
+    return busStopMarker.filter((_, index) => index < MAX_STOPS);
+  }, [busStopMarker]);
+
+  const busesToRender = useMemo(() => {
+    return buses.filter((_, index) => index < MAX_BUSES);
+  }, [buses]);
+
   return (
     <View style={[styles.container, style]}>
       {/* Loading bar - blue for search */}
@@ -544,7 +557,7 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
         )}
 
         {/* Bus stop markers */}
-        {currentZoom >= 14 && busStopMarker.map((busStop: BusStopMarker, index: number) => {
+        {currentZoom >= 14 && stopsToRender.map((busStop: BusStopMarker, index: number) => {
           const isFavoriteStop = isStopFavorite(busStop.id);
           return (
             <PointAnnotation
@@ -598,7 +611,7 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
         })}
 
         {/* Bus markers */}
-        {currentZoom >= 13.4 && buses && buses.map((bus: BusMarker, index: number) => {
+        {currentZoom >= 13.8 && busesToRender.map((bus: BusMarker, index: number) => {
           const isFavoriteBus = isBusFavorite(bus.linha ?? '');
           const color = bus.corOperadora || '#5a4799';
           return (
