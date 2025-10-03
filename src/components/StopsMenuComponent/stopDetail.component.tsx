@@ -1,7 +1,7 @@
 import { useBusFavorites, useStopFavorites } from '@/src/hooks/useFavorites';
 import { apiService } from '@/src/services/api';
 import { useAppStore } from '@/src/store';
-import { BusStop, StopRealtimeArrivalsMap, StopScheduleV2 } from '@/src/types';
+import { BusLineV2, BusStop, StopRealtimeArrivalsMap, StopScheduleV2 } from '@/src/types';
 import { buildLineKey } from '@/src/utils/lineUtils';
 import { FontAwesome5, MaterialIcons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
@@ -13,6 +13,7 @@ import {
   View,
 } from 'react-native';
 import SkeletonPlaceholder from '../common/SkeletonPlaceholder';
+import LineRouteMap from './lineRouteMap.component';
 
 interface StopDetailProps {
   stop: BusStop;
@@ -35,6 +36,9 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
   const [realtimeArrivals, setRealtimeArrivals] = useState<StopRealtimeArrivalsMap>({});
   const [realtimeLoading, setRealtimeLoading] = useState(false);
   const [realtimeError, setRealtimeError] = useState<string | null>(null);
+  
+  // Route map view state
+  const [selectedLineForMap, setSelectedLineForMap] = useState<BusLineV2 | null>(null);
 
   // Favorites using custom hook
   const { isFavorite, toggleFavorite } = useStopFavorites();
@@ -384,6 +388,17 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
     );
   }
 
+  // If a line is selected for map view, show the route map
+  if (selectedLineForMap) {
+    return (
+      <LineRouteMap
+        line={selectedLineForMap}
+        currentStop={stop}
+        onBack={() => setSelectedLineForMap(null)}
+      />
+    );
+  }
+
   return (
     <View style={[styles.container, { backgroundColor: appTheme === 'dark' ? '#000' : '#fff' }]}>
       <View style={styles.header}>
@@ -619,7 +634,7 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
                                   { backgroundColor: appTheme === 'dark' ? '#242424ff' : '#f0f0f0' }
                                 ]}
                                 onPress={() => {
-                                  console.log('see route:', lineData.line.numero);
+                                  setSelectedLineForMap(lineData.line);
                                 }}
                               >
                                 <FontAwesome5 name="route" size={18} color="#007AFF" solid />
