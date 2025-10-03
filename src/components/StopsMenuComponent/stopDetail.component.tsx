@@ -76,7 +76,7 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
         setError(null);
 
         const data = await stopService.getStopScheduleV2(stop);
-        console.warn('[STOPDETAIL2] Loaded stop schedule V2:', data.lines[0]);
+        // console.warn('[STOPDETAIL2] Loaded stop schedule V2:', data.lines[0]);
         setScheduleData(data);
       } catch (err) {
         console.error('Erro ao carregar horários da parada (loadData):', err);
@@ -112,7 +112,7 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
         const realtime = await busService.getRealtimeArrivalsForStop(stop, lines, {
           radiusMeters: 2000,
           maxPerLine: 3,
-          maxEtaMinutes: 90,
+          maxEtaMinutes: 60,
         });
 
         if (isMounted) {
@@ -673,19 +673,24 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
                               {hasSecondary && !showPastLabel && (
                                 <View style={styles.nextSchedulesContainer}>
                                   <Text style={styles.nextScheduleText}>
-                                    {secondaryItems.map((item, idx) => (
-                                      <Text
-                                        key={`${lineData.line.numero}-${idx}`}
-                                        style={[
-                                          styles.nextScheduleText,
-                                          { color: item.isRealtime ? '#00C853' : '#666' },
-                                        ]}
-                                      >
-                                        {idx > 0 ? ', ' : ''}
-                                        {item.label}
-                                        {item.unit ? ` ${item.unit}` : ''}
-                                      </Text>
-                                    ))}
+                                    {(() => {
+                                      const allMinutes = secondaryItems.every(item => item.unit === 'min');
+                                      const labels = secondaryItems.map(item => item.label).join(', ');
+                                      return allMinutes
+                                        ? `${labels} min`
+                                        : secondaryItems.map((item, idx) => (
+                                            <Text
+                                              key={`${lineData.line.numero}-${idx}`}
+                                              style={[
+                                                styles.nextScheduleText,
+                                                { color: item.isRealtime ? '#00C853' : '#666' },
+                                              ]}
+                                            >
+                                              {idx > 0 ? ', ' : ''}
+                                              {item.label}
+                                            </Text>
+                                          ));
+                                    })()}
                                   </Text>
                                 </View>
                               )}
