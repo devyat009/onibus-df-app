@@ -26,7 +26,11 @@ export class BusService {
 	 * @param timeFilter - The time filter to apply (e.g., '30min' or '24h').
 	 * @returns An array of Bus objects.
 	 */
-	async getBuses(bounds?: MapBounds, timeFilter?: '30min' | '24h'): Promise<Bus[]> {
+	async getBuses(bounds?: MapBounds, timeFilter?: '30min' | '24h',
+		options?: {
+			radiusMeters?: number;
+		}
+	): Promise<Bus[]> {
 		// Use filter from store if not provided as parameter
 		const filterToUse = timeFilter || useAppStore.getState().busTimeFilter;
 
@@ -221,21 +225,21 @@ export class BusService {
 		}
 	): Promise<StopRealtimeArrivalsMap> {
 		if (!stop || !isFinite(stop.latitude) || !isFinite(stop.longitude)) {
-			console.warn('[RealtimeArrivals] Invalid stop data provided', {
-				stopId: stop?.codigo,
-				hasLatitude: isFinite(stop?.latitude ?? NaN),
-				hasLongitude: isFinite(stop?.longitude ?? NaN),
-				linesCount: Array.isArray(lines) ? lines.length : 'unknown'
-			});
+			// console.warn('[RealtimeArrivals] Invalid stop data provided', {
+			// 	stopId: stop?.codigo,
+			// 	hasLatitude: isFinite(stop?.latitude ?? NaN),
+			// 	hasLongitude: isFinite(stop?.longitude ?? NaN),
+			// 	linesCount: Array.isArray(lines) ? lines.length : 'unknown'
+			// });
 			return {};
 		}
 
 		if (!Array.isArray(lines) || lines.length === 0) {
-			console.warn('[RealtimeArrivals] No lines provided for realtime lookup', {
-				stopId: stop.codigo,
-				linesType: typeof lines,
-				received: lines
-			});
+			// console.warn('[RealtimeArrivals] No lines provided for realtime lookup', {
+			// 	stopId: stop.codigo,
+			// 	linesType: typeof lines,
+			// 	received: lines
+			// });
 			return {};
 		}
 
@@ -243,25 +247,25 @@ export class BusService {
 		const maxPerLine = options?.maxPerLine ?? 3;
 		const maxEtaMinutes = options?.maxEtaMinutes ?? 90;
 
-		console.log('[RealtimeArrivals] Fetching realtime arrivals', {
-			stopId: stop.codigo,
-			stopName: stop.nome,
-			linesCount: lines.length,
-			radiusMeters,
-			maxPerLine,
-			maxEtaMinutes
-		});
+		// console.log('[RealtimeArrivals] Fetching realtime arrivals', {
+		// 	stopId: stop.codigo,
+		// 	stopName: stop.nome,
+		// 	linesCount: lines.length,
+		// 	radiusMeters,
+		// 	maxPerLine,
+		// 	maxEtaMinutes
+		// });
 
 		const bounds = createBoundsFromRadius(stop.latitude, stop.longitude, radiusMeters);
-		console.log('[RealtimeArrivals] Calculated bounds for stop', bounds);
+		//console.log('[RealtimeArrivals] Calculated bounds for stop', bounds);
 		const buses = await this.getBuses(bounds);
-		console.log('[RealtimeArrivals] Buses fetched for bounds', {
-			totalBuses: buses.length,
-			bounds
-		});
+		// console.log('[RealtimeArrivals] Buses fetched for bounds', {
+		// 	totalBuses: buses.length,
+		// 	bounds
+		// });
 
 		if (!buses.length) {
-			console.log('[RealtimeArrivals] No buses returned within bounds');
+			// console.log('[RealtimeArrivals] No buses returned within bounds');
 			return {};
 		}
 
@@ -288,17 +292,17 @@ export class BusService {
 		});
 
 		if (!descriptors.length) {
-			console.warn('[RealtimeArrivals] Failed to build descriptors for lines', {
-				stopId: stop.codigo,
-				lines
-			});
+			// console.warn('[RealtimeArrivals] Failed to build descriptors for lines', {
+			// 	stopId: stop.codigo,
+			// 	lines
+			// });
 			return {};
 		}
 
-		console.log('[RealtimeArrivals] Built line descriptors', {
-			descriptorCount: descriptors.length,
-			descriptorKeys: descriptors.map(descriptor => descriptor.key)
-		});
+		// console.log('[RealtimeArrivals] Built line descriptors', {
+		// 	descriptorCount: descriptors.length,
+		// 	descriptorKeys: descriptors.map(descriptor => descriptor.key)
+		// });
 
 		const descriptorBuckets = new Map<string, LineDescriptor[]>();
 		const registerDescriptor = (key: string, descriptor: LineDescriptor) => {
@@ -391,20 +395,20 @@ export class BusService {
 					const [chosenDescriptor] = fallbackMatches;
 					stats.fallbackMatches += 1;
 					candidateDescriptors.add(chosenDescriptor);
-					console.log('[RealtimeArrivals] Using fallback match for bus line', JSON.stringify({
-						busId: bus.prefixo,
-						rawLinha: bus.linha,
-						normalized,
-						digits,
-						trimmedDigits,
-						chosenDescriptor: {
-							numero: chosenDescriptor.line.numero,
-							sentido: chosenDescriptor.line.sentido,
-							key: chosenDescriptor.key,
-							digits: chosenDescriptor.digits,
-							trimmed: chosenDescriptor.trimmed,
-						}
-					}));
+					// console.log('[RealtimeArrivals] Using fallback match for bus line', JSON.stringify({
+					// 	busId: bus.prefixo,
+					// 	rawLinha: bus.linha,
+					// 	normalized,
+					// 	digits,
+					// 	trimmedDigits,
+					// 	chosenDescriptor: {
+					// 		numero: chosenDescriptor.line.numero,
+					// 		sentido: chosenDescriptor.line.sentido,
+					// 		key: chosenDescriptor.key,
+					// 		digits: chosenDescriptor.digits,
+					// 		trimmed: chosenDescriptor.trimmed,
+					// 	}
+					// }));
 				} else {
 					stats.noDescriptor += 1;
 					if (samples.noDescriptor.length < 5) {
@@ -422,7 +426,7 @@ export class BusService {
 								digits: match.digits,
 							}))
 						});
-						console.warn('[RealtimeArrivals] No descriptor candidate', JSON.stringify(samples.noDescriptor[samples.noDescriptor.length - 1]));
+						// console.warn('[RealtimeArrivals] No descriptor candidate', JSON.stringify(samples.noDescriptor[samples.noDescriptor.length - 1]));
 					}
 					return;
 				}
@@ -455,7 +459,7 @@ export class BusService {
 							speedKmh,
 							sentido: bus.sentido
 						});
-						console.warn('[RealtimeArrivals] Slow bus too far from stop', JSON.stringify(samples.speedZeroTooFar[samples.speedZeroTooFar.length - 1]));
+						// console.warn('[RealtimeArrivals] Slow bus too far from stop', JSON.stringify(samples.speedZeroTooFar[samples.speedZeroTooFar.length - 1]));
 					}
 					return;
 				}
@@ -482,7 +486,7 @@ export class BusService {
 							descriptorNumero: descriptor.line.numero,
 							descriptorKey: descriptor.key
 						});
-						console.warn('[RealtimeArrivals] Line mismatch candidate', JSON.stringify(samples.lineMismatch[samples.lineMismatch.length - 1]));
+						// console.warn('[RealtimeArrivals] Line mismatch candidate', JSON.stringify(samples.lineMismatch[samples.lineMismatch.length - 1]));
 					}
 					return;
 				}
@@ -497,7 +501,7 @@ export class BusService {
 							descriptorSentido: descriptor.sentido,
 							descriptorKey: descriptor.key
 						});
-						console.warn('[RealtimeArrivals] Sentido mismatch', JSON.stringify(samples.sentidoMismatch[samples.sentidoMismatch.length - 1]));
+						// console.warn('[RealtimeArrivals] Sentido mismatch', JSON.stringify(samples.sentidoMismatch[samples.sentidoMismatch.length - 1]));
 					}
 					return;
 				}
@@ -514,20 +518,20 @@ export class BusService {
 				.slice(0, maxPerLine);
 		});
 
-		console.log('[RealtimeArrivals] Matching summary', {
-			stopId: stop.codigo,
-			linesEvaluated: descriptors.length,
-			resultLineCount: Object.keys(result).length,
-			stats,
-			samples
-		});
-		console.log('[RealtimeArrivals] Matching summary (json)', JSON.stringify({
-			stopId: stop.codigo,
-			linesEvaluated: descriptors.length,
-			resultLineCount: Object.keys(result).length,
-			stats,
-			samples
-		}, null, 2));
+		// console.log('[RealtimeArrivals] Matching summary', {
+		// 	stopId: stop.codigo,
+		// 	linesEvaluated: descriptors.length,
+		// 	resultLineCount: Object.keys(result).length,
+		// 	stats,
+		// 	samples
+		// });
+		// console.log('[RealtimeArrivals] Matching summary (json)', JSON.stringify({
+		// 	stopId: stop.codigo,
+		// 	linesEvaluated: descriptors.length,
+		// 	resultLineCount: Object.keys(result).length,
+		// 	stats,
+		// 	samples
+		// }, null, 2));
 
 		return result;
 	}

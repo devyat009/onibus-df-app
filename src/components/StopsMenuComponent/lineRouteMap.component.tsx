@@ -1,6 +1,7 @@
 import { busService, stopService } from '@/src/services/api';
 import { useAppStore } from '@/src/store';
 import { BusLineV2, BusStop, EnhancedBus } from '@/src/types';
+import { haversineDistance2 } from '@/src/utils/geoUtils';
 import { matchesLineNumber } from '@/src/utils/lineUtils';
 import { MaterialIcons } from '@expo/vector-icons';
 import MapLibreGL from '@maplibre/maplibre-react-native';
@@ -54,16 +55,43 @@ const LineRouteMap: React.FC<LineRouteMapProps> = ({ line, currentStop, onBack }
           stopService.getStops(),
           busService.getEnhancedBuses(undefined, '30min'),
         ]);
+        
+        const MAX_DISTANCE_METERS = 5; // due being very precise
+        const routeCoords = line.geolinhas.flatMap(geo => geo.coordinates);
+        // const stopCoord: [number, number] = [stop.longitude, stop.latitude];
 
-        // Find stops that have this line
+        // Find stops that have this line and direction
         const routeStopIds = allStopsData
-          .filter(stopData => stopData.linParadas.some(lp => lp.includes(line.numero)))
+          .filter(stopData =>
+            stopData.linParadas.some(lp => {
+              // Quebra o formato "numero - sentido"
+              const [numero, sentido] = lp.split(' - ').map(s => s.trim().toUpperCase());
+              return (
+                numero === String(line.numero).toUpperCase() &&
+                sentido === String(line.sentido).toUpperCase()
+              );
+            })
+          )
           .map(stopData => stopData.id);
 
+        const routeStops = allStops.filter(stop => {
+          if (!routeStopIds.includes(Number(stop.codigo))) return false;
+          // Calcula a menor distância da parada para qualquer ponto da linha
+          const stopCoord: [number, number] = [stop.longitude, stop.latitude];
+          const minDist = routeCoords.reduce((min, coord) => {
+            const dist = haversineDistance2(stopCoord, coord);
+            return Math.min(min, dist);
+          }, Infinity);
+          return minDist < MAX_DISTANCE_METERS;
+        });
+        
+        console.log('[LineRouteMap] Route stop IDs:', routeStopIds);
+        // console.log('[LineRouteMap] stopData:', allStopsData.filter(stopData => stopData.linParadas.some(lp => lp.includes(line.numero))));
+        console.warn('[LineRouteMap] Line:', line);
         // Filter actual stop objects
-        const routeStops = allStops.filter(stop => 
-          routeStopIds.includes(Number(stop.codigo))
-        );
+        // const routeStops = allStops.filter(stop => 
+        //   routeStopIds.includes(Number(stop.codigo))
+        // );
 
         setStops(routeStops);
         
@@ -190,6 +218,15 @@ const LineRouteMap: React.FC<LineRouteMapProps> = ({ line, currentStop, onBack }
       return true;
     });
   }, [buses]);
+
+  function isValidCoordinate([lng, lat]: [number, number]) {
+    return (
+      typeof lng === 'number' &&
+      typeof lat === 'number' &&
+      lng >= -180 && lng <= 180 &&
+      lat >= -90 && lat <= 90
+    );
+  }
 
   // Calcular pontos de início e fim da rota
   const routeEndpoints = useMemo(() => {
@@ -379,6 +416,8 @@ const LineRouteMap: React.FC<LineRouteMapProps> = ({ line, currentStop, onBack }
             {visibleBuses.map((bus, index) => {
               const isFavoriteBus = isBusFavorite(bus.linha ?? '');
               const color = bus.corOperadora || '#5a4799';
+              const coord: [number, number] = [bus.longitude, bus.latitude];
+              if (!isValidCoordinate(coord)) return null;
               return (
                 <PointAnnotation
                   key={`bus-${bus.id}-${index}`}

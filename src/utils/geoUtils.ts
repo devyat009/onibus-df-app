@@ -18,6 +18,22 @@ export const haversineDistance = (lat1: number, lon1: number, lat2: number, lon2
 	return R * c;
 }
 
+// Haversine distance between two [lng, lat] points
+export const haversineDistance2 = ([lng1, lat1]: [number, number], [lng2, lat2]: [number, number]) => {
+  const toRad = (x: number) => (x * Math.PI) / 180;
+  const R = 6371000; // Raio da Terra em metros
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) *
+      Math.cos(toRad(lat2)) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
 /**
  * Calculate distance from a point to a line segment using Haversine formula for geographic coordinates
  */
@@ -149,4 +165,16 @@ export const utmToLatLngZone23S = (easting: number, northing: number): { lat: nu
 	lng = longOrigin + lng * 180 / Math.PI;
 
 	return { lat, lng };
+}
+
+/**
+ * Check if given [lng, lat] is a valid coordinate
+ */
+export const isValidCoordinate = ([lng, lat]: [number, number]) => {
+  return (
+    typeof lng === 'number' &&
+    typeof lat === 'number' &&
+    lng >= -180 && lng <= 180 &&
+    lat >= -90 && lat <= 90
+  );
 }
