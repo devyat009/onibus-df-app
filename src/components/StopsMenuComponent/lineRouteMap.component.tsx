@@ -5,7 +5,7 @@ import { haversineDistance2, utmToLatLngZone23S } from '@/src/utils/geoUtils';
 import { matchesLineNumber } from '@/src/utils/lineUtils';
 import { MaterialIcons } from '@expo/vector-icons';
 import MapLibreGL from '@maplibre/maplibre-react-native';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   StyleSheet,
@@ -40,6 +40,30 @@ const LineRouteMap: React.FC<LineRouteMapProps> = ({ line, currentStop, onBack }
     ne: [number, number];
     sw: [number, number];
   } | null>(null);
+  // controls whether we should auto-fit bounds on region change
+  const [shouldFitBounds, setShouldFitBounds] = useState(true);
+  // Timestamp para diferenciar animação programática vs gesto do usuário
+  const fitAppliedAtRef = useRef<number | null>(null);
+  // Handler for region change events
+  const handleRegionDidChange = (event: any) => {
+    if (shouldFitBounds) {
+      const appliedAt = fitAppliedAtRef.current;
+      if (appliedAt && Date.now() - appliedAt < 700) {
+        // Inside programmatic animation window; do not disable yet
+        return;
+      }
+      // User interacted after animation -> release camera
+      setShouldFitBounds(false);
+      return;
+    }
+  };
+
+  // Route geographic bounds for scoped bus fetching
+  const routeBoundsRef = useRef<{ north: number; south: number; east: number; west: number } | null>(null);
+  // Track temporary missing buses to avoid flicker removals
+  const missingCyclesRef = useRef<Record<string, number>>({});
+  const LAST_SEEN_MAX_MISSING_CYCLES = 3; // drop bus only after N consecutive misses
+  const MOVEMENT_THRESHOLD_METERS = 5; // minimal movement to count as an update
 
   const { isFavorite: isBusFavorite } = useBusFavorites();
 
@@ -85,18 +109,32 @@ const LineRouteMap: React.FC<LineRouteMapProps> = ({ line, currentStop, onBack }
           return minDist < MAX_DISTANCE_METERS;
         });
         
-        console.log('[LineRouteMap] Route stop IDs:', routeStopIds);
+        // console.log('[LineRouteMap] Route stop IDs:', routeStopIds);
         // console.log('[LineRouteMap] stopData:', allStopsData.filter(stopData => stopData.linParadas.some(lp => lp.includes(line.numero))));
-        console.warn('[LineRouteMap] Line:', line);
+        // console.warn('[LineRouteMap] Line:', line);
         // Filter actual stop objects
         // const routeStops = allStops.filter(stop => 
         //   routeStopIds.includes(Number(stop.codigo))
         // );
 
         setStops(routeStops);
-        
-        const lineBuses = enhancedBuses.filter(bus => matchesLineNumber(bus.linha, line.numero));
-        
+
+        // Initial bus filtering (relaxed: matches or includes line numero substring)
+        let lineBuses = enhancedBuses.filter(bus => matchesLineNumber(bus.linha, line.numero) || bus.linha?.includes(String(line.numero)));
+        if (lineBuses.length === 0 && enhancedBuses.length > 0) {
+          // fallback: any bus within 60m of route polyline (heuristic)
+          lineBuses = enhancedBuses.filter(b => {
+            const busCoord: [number, number] = [b.longitude, b.latitude];
+            let min = Infinity;
+            for (let i = 0; i < routeCoords.length; i++) {
+              const c = routeCoords[i];
+              const d = haversineDistance2(busCoord, c as [number, number]);
+              if (d < min) min = d;
+              if (min < 60) break;
+            }
+            return min < 60;
+          });
+        }
         setBuses(lineBuses);
         
         if (line.geolinhas && line.geolinhas.length > 0) {
@@ -138,6 +176,14 @@ const LineRouteMap: React.FC<LineRouteMapProps> = ({ line, currentStop, onBack }
             sw: [minLng - lngPadding, minLat - latPadding] as [number, number],
           };
           setCameraBounds(bounds);
+          setShouldFitBounds(true); // only fit on initial load
+          fitAppliedAtRef.current = Date.now();
+          routeBoundsRef.current = {
+            north: maxLat + latPadding,
+            south: minLat - latPadding,
+            east: maxLng + lngPadding,
+            west: minLng - lngPadding,
+          };
         }
       } catch (error) {
         console.error('Error loading route data:', error);
@@ -150,15 +196,53 @@ const LineRouteMap: React.FC<LineRouteMapProps> = ({ line, currentStop, onBack }
 
     const interval = setInterval(async () => {
       try {
-        const enhancedBuses = await busService.getEnhancedBuses(undefined, '30min');
-        
-        const lineBuses = enhancedBuses.filter(bus => matchesLineNumber(bus.linha, line.numero));
-        
-        setBuses(lineBuses);
+        const boundsParam = routeBoundsRef.current || undefined;
+  const enhancedBuses = await busService.getEnhancedBuses(boundsParam, '30min');
+        let lineBuses = enhancedBuses.filter(bus => matchesLineNumber(bus.linha, line.numero) || bus.linha?.includes(String(line.numero)));
+        if (lineBuses.length === 0 && enhancedBuses.length > 0 && line.geolinhas?.length) {
+          const routeCoords = line.geolinhas.flatMap(g => g.coordinates);
+          lineBuses = enhancedBuses.filter(b => {
+            const busCoord: [number, number] = [b.longitude, b.latitude];
+            let min = Infinity;
+            for (let i = 0; i < routeCoords.length; i++) {
+              const c = routeCoords[i];
+              const d = haversineDistance2(busCoord, c as [number, number]);
+              if (d < min) min = d;
+              if (min < 60) break;
+            }
+            return min < 60;
+          });
+        }
+        if (__DEV__) {
+          console.log('[LineRouteMap] raw buses:', enhancedBuses.length, 'filtered:', lineBuses.length, 'bounds?', !!boundsParam);
+        }
+        if (lineBuses.length === 0) return; // keep previous to avoid flicker
+        // Stabilize updates with movement threshold & missing cycles retention
+        setBuses(prev => {
+          if (prev.length === 0) return lineBuses;
+          const byId: Record<string, EnhancedBus> = {};
+          lineBuses.forEach(b => { if (b.id) byId[b.id] = b; });
+          const merged: EnhancedBus[] = [];
+          prev.forEach(oldBus => {
+            const upd = oldBus.id ? byId[oldBus.id] : undefined;
+            if (upd) {
+              if (oldBus.id) missingCyclesRef.current[oldBus.id] = 0;
+              const moved = haversineDistance2([oldBus.longitude, oldBus.latitude], [upd.longitude, upd.latitude]) > MOVEMENT_THRESHOLD_METERS;
+              merged.push(moved ? upd : oldBus);
+              if (oldBus.id) delete byId[oldBus.id];
+            } else if (oldBus.id) {
+              const miss = (missingCyclesRef.current[oldBus.id] || 0) + 1;
+              missingCyclesRef.current[oldBus.id] = miss;
+              if (miss < LAST_SEEN_MAX_MISSING_CYCLES) merged.push(oldBus);
+            }
+          });
+          Object.values(byId).forEach(n => { if (n.id) missingCyclesRef.current[n.id] = 0; merged.push(n); });
+          return merged;
+        });
       } catch (error) {
         console.error('Error refreshing buses:', error);
       }
-    }, 10000);
+    }, 8000);
 
     return () => clearInterval(interval);
   }, [line, currentStop]);
@@ -210,11 +294,26 @@ const LineRouteMap: React.FC<LineRouteMapProps> = ({ line, currentStop, onBack }
     };
   }, [stops, currentStop]);
 
+  // Buses already come in WGS84 (lat/lon) like main map; remove unnecessary conversion that caused invalid coords & flicker
   const visibleBuses = useMemo(() => {
+    const isLikelyUtm = (lon: number, lat: number) => {
+      // UTM Zone 23S (Brazil) typical ranges: easting ~ 180000-820000, northing ~ 7,000,000-10,000,000
+      return lon > 90000 && lon < 900000 && lat > 7000000 && lat < 10000000;
+    };
+
     return buses
       .map(bus => {
-        const { lng, lat } = utmToLatLngZone23S(bus.longitude, bus.latitude);
-        return { ...bus, longitude: lng, latitude: lat };
+        let lon = bus.longitude;
+        let lat = bus.latitude;
+        if (typeof lon === 'number' && typeof lat === 'number' && isLikelyUtm(lon, lat)) {
+          try {
+            const { lng, lat: convLat } = utmToLatLngZone23S(lon, lat);
+            lon = lng; lat = convLat;
+          } catch (e) {
+            if (__DEV__) console.warn('[LineRouteMap] UTM conversion failed for bus', bus.id, e);
+          }
+        }
+        return { ...bus, longitude: lon, latitude: lat };
       })
       .filter(bus => isValidCoordinate([bus.longitude, bus.latitude]));
   }, [buses]);
@@ -303,17 +402,20 @@ const LineRouteMap: React.FC<LineRouteMapProps> = ({ line, currentStop, onBack }
           <MapView
             style={styles.map}
             mapStyle={mapStyleUrl}
+            onRegionDidChange={handleRegionDidChange}
           >
-            {cameraBounds && (
+            {cameraBounds && shouldFitBounds && (
               <Camera
                 bounds={{
                   ne: cameraBounds.ne,
                   sw: cameraBounds.sw,
                 }}
                 padding={{ paddingTop: 50, paddingBottom: 50, paddingLeft: 50, paddingRight: 50 }}
-                animationDuration={1000}
+                animationDuration={800}
               />
             )}
+            {/* when shouldFitBounds is false, let free the camera */}
+            {!shouldFitBounds && <Camera />}
 
 
             {/* 1. Route line - renderizada PRIMEIRO (z-index mais baixo) */}
@@ -490,6 +592,16 @@ const LineRouteMap: React.FC<LineRouteMapProps> = ({ line, currentStop, onBack }
           </MapView>
         )}
       </View>
+      {/* Botão para recentralizar/ajustar bounds novamente */}
+      {cameraBounds && (
+        <TouchableOpacity
+          onPress={() => { setShouldFitBounds(true); fitAppliedAtRef.current = Date.now(); }}
+          style={[styles.refitButton, { backgroundColor: appTheme === 'dark' ? '#1a1a1a' : '#fff', borderColor: appTheme === 'dark' ? '#333' : '#ddd' }]}
+          activeOpacity={0.8}
+        >
+          <MaterialIcons name="my-location" size={22} color={appTheme === 'dark' ? '#fff' : '#007AFF'} />
+        </TouchableOpacity>
+      )}
 
       {/* Info footer */}
       <View style={[styles.footer, { backgroundColor: appTheme === 'dark' ? '#1a1a1a' : '#f9f9f9' }]}>
@@ -533,6 +645,23 @@ const LineRouteMap: React.FC<LineRouteMapProps> = ({ line, currentStop, onBack }
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  refitButton: {
+    position: 'absolute',
+    top: 100,
+    right: 16,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    borderWidth: 1,
+    zIndex: 50,
   },
   header: {
     flexDirection: 'row',

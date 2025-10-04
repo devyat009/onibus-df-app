@@ -22,6 +22,7 @@ import { TrafficJam } from '../types';
 import yellowBlackStripes from '../assets/images/pattern/yellow-black.png';
 import BusStopIcon2 from '../assets/images/svg/bus-stop2.svg';
 import BusIcon from '../assets/images/svg/bus.svg';
+import { shallowEqualArray, shallowEqualArrayWithDistanceMovingLatLng } from '../utils/geoUtils';
 
 interface BusStopMarker {
   id: string;
@@ -272,33 +273,70 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
     }
   };
 
-  // Handle bus selection
-  const handleBusSelect = (bus: BusMarker) => {
-    if (selectedBus?.id === bus.id) {
-      // Fade out
-      Animated.timing(fadeAnim, {
-        toValue: 0,
-        duration: 300,
-        useNativeDriver: true,
-      }).start(() => setSelectedBus(null));
-    } else {
-      setSelectedBus(bus);
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }).start();
+  const memoizedOnBusStopMarkerPress = useCallback(
+    (busStop: BusStopMarker) => {
+      onBusStopMarkerPress?.(busStop);
+    },
+    [onBusStopMarkerPress]
+  );
 
-      // Auto fade-out after 5 seconds
-      setTimeout(() => {
+  const memoizedHandleBusSelect = useCallback(
+    (bus: BusMarker) => {
+      if (selectedBus?.id === bus.id) {
+        // Fade out
         Animated.timing(fadeAnim, {
           toValue: 0,
           duration: 300,
           useNativeDriver: true,
         }).start(() => setSelectedBus(null));
-      }, 5000);
-    }
-  };
+      } else {
+        setSelectedBus(bus);
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }).start();
+
+        // Auto fade-out after 5 seconds
+        setTimeout(() => {
+          Animated.timing(fadeAnim, {
+            toValue: 0,
+            duration: 300,
+            useNativeDriver: true,
+          }).start(() => setSelectedBus(null));
+        }, 5000);
+      }
+    },
+    [selectedBus, fadeAnim]
+  );
+
+  // Handle bus selection
+  // const handleBusSelect = (bus: BusMarker) => {
+  //   if (selectedBus?.id === bus.id) {
+  //     // Fade out
+  //     Animated.timing(fadeAnim, {
+  //       toValue: 0,
+  //       duration: 300,
+  //       useNativeDriver: true,
+  //     }).start(() => setSelectedBus(null));
+  //   } else {
+  //     setSelectedBus(bus);
+  //     Animated.timing(fadeAnim, {
+  //       toValue: 1,
+  //       duration: 300,
+  //       useNativeDriver: true,
+  //     }).start();
+
+  //     // Auto fade-out after 5 seconds
+  //     setTimeout(() => {
+  //       Animated.timing(fadeAnim, {
+  //         toValue: 0,
+  //         duration: 300,
+  //         useNativeDriver: true,
+  //       }).start(() => setSelectedBus(null));
+  //     }, 5000);
+  //   }
+  // };
 
   // Handle data update timestamp
   const getAtualizadoTexto = (datalocal?: string, dataregistro?: string) => {
@@ -379,16 +417,21 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
 
   // Max number of stops and buses to render
   const MAX_STOPS = 50;
-  const MAX_BUSES = 100;
+  const MAX_BUSES = 75;
+  const STOP_ZOOM_RENDER_THRESHOLD = 14.2; // previously inline condition
+  const BUS_ZOOM_RENDER_THRESHOLD = 13.8; // previously inline condition
 
   // Filter stops and buses to render based on current zoom
   const stopsToRender = useMemo(() => {
-    return busStopMarker.filter((_, index) => index < MAX_STOPS);
-  }, [busStopMarker]);
+    if (currentZoom < STOP_ZOOM_RENDER_THRESHOLD) return [] as BusStopMarker[];
+    // slice instead of filter with index condition for micro-optimization
+    return busStopMarker.length > MAX_STOPS ? busStopMarker.slice(0, MAX_STOPS) : busStopMarker;
+  }, [busStopMarker, currentZoom]);
 
   const busesToRender = useMemo(() => {
-    return buses.filter((_, index) => index < MAX_BUSES);
-  }, [buses]);
+    if (currentZoom < BUS_ZOOM_RENDER_THRESHOLD) return [] as BusMarker[];
+    return buses.length > MAX_BUSES ? buses.slice(0, MAX_BUSES) : buses;
+  }, [buses, currentZoom]);
 
   return (
     <View style={[styles.container, style]}>
@@ -557,14 +600,14 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
         )}
 
         {/* Bus stop markers */}
-        {currentZoom >= 14 && stopsToRender.map((busStop: BusStopMarker, index: number) => {
+        {currentZoom >= STOP_ZOOM_RENDER_THRESHOLD && stopsToRender.map((busStop: BusStopMarker, index: number) => {
           const isFavoriteStop = isStopFavorite(busStop.id);
           return (
             <PointAnnotation
               key={`bus-stop-${busStop.id}-${index}`}
               id={`stop-${busStop.id}`}
               coordinate={[busStop.longitude, busStop.latitude]}
-              onSelected={() => onBusStopMarkerPress?.(busStop)}
+              onSelected={() => memoizedOnBusStopMarkerPress(busStop)}
             >
               <View
                 collapsable={false}
@@ -610,8 +653,8 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
           );
         })}
 
-        {/* Bus markers */}
-        {currentZoom >= 13.8 && busesToRender.map((bus: BusMarker, index: number) => {
+          {/* Bus markers */}
+          {currentZoom >= BUS_ZOOM_RENDER_THRESHOLD && busesToRender.map((bus: BusMarker, index: number) => {
           const isFavoriteBus = isBusFavorite(bus.linha ?? '');
           const color = bus.corOperadora || '#5a4799';
           return (
@@ -619,7 +662,7 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
               key={`bus-${bus.id}-${index}`}
               id={`bus-${bus.id}`}
               coordinate={[bus.longitude, bus.latitude]}
-              onSelected={() => handleBusSelect(bus)}
+              onSelected={() => memoizedHandleBusSelect(bus)}
             >
               <View
                 collapsable={false}
@@ -817,6 +860,39 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
   );
 };
 
+// Custom comparator: re-render only if relevant props truly changed
+const areMapPropsEqual = (prev: MapLibreBasicProps, next: MapLibreBasicProps) => {
+  // Primitive / simple props
+  if (prev.latitude !== next.latitude) return false;
+  if (prev.longitude !== next.longitude) return false;
+  if (prev.zoom !== next.zoom) return false;
+  if (prev.theme !== next.theme) return false;
+  if (prev.showTraffic !== next.showTraffic) return false;
+  if (prev.isFetchingBuses !== next.isFetchingBuses) return false;
+  if (prev.fetchDuration !== next.fetchDuration) return false;
+
+  // Coalesce undefined -> [] so helpers always receive arrays
+  const prevStops = prev.busStopMarker ?? [];
+  const nextStops = next.busStopMarker ?? [];
+  const prevBuses = prev.buses ?? [];
+  const nextBuses = next.buses ?? [];
+
+  if (!shallowEqualArray(prevStops, nextStops)) return false;
+  if (!shallowEqualArrayWithDistanceMovingLatLng(prevBuses, nextBuses, 5)) return false;
+
+  // We assume handlers (callbacks) are memoized upstream; if not, this will still treat
+  // referential changes as non-blocking by NOT comparing them (so we don't force rerender).
+  // To re-render when handlers change, uncomment below:
+  if (prev.onRegionDidChange !== next.onRegionDidChange) return false;
+  // if (prev.onBusStopMarkerPress !== next.onBusStopMarkerPress) return false;
+  if (prev.onBusMarkerPress !== next.onBusMarkerPress) return false;
+
+  // style object: assume stable / memoized upstream; shallow reference check
+  if (prev.style !== next.style) return false;
+
+  return true; // No meaningful changes -> skip re-render
+};
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -885,4 +961,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default MapLibreBasic;
+export default React.memo(MapLibreBasic, areMapPropsEqual);

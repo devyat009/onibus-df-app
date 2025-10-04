@@ -21,6 +21,7 @@ import MapLibreBasic from '../components/MapLibre';
 import StopDetail from '../components/StopsMenuComponent/stopDetail.component';
 import StopsPainelMenu from '../components/StopsMenuComponent/stopsPainel.component';
 import { useLocation } from "../hooks/useLocation";
+import { shallowEqualArray, shallowEqualArrayWithDistanceMovingLatLng } from '../utils/geoUtils';
 
 export default function Index() {
   // Location hook
@@ -301,7 +302,9 @@ export default function Index() {
   useEffect(() => {
     if (!bounds || (userMapZoom ?? 0) < STOPS_ZOOM_THRESHOLD) return;
     stopService.getStops(bounds)
-      .then(setStops)
+      .then(newStops => {
+        setStops(prev => shallowEqualArray(prev, newStops) ? prev : newStops);
+      })
       .catch((error) => {
         console.error('Error fetching bus stops:', error);
       });
@@ -354,7 +357,7 @@ export default function Index() {
 
         const firstCount = Math.min(chunkSize, total);
         const firstChunk = filteredBuses.slice(0, firstCount).map(mapBus);
-        setBuses(firstChunk);
+        setBuses(prev => shallowEqualArrayWithDistanceMovingLatLng(prev, firstChunk, 5) ? prev : firstChunk);
 
         const pushNext = (startIndex: number) => {
           if (loadIdRef.current !== myLoadId) return; // canceled by new load

@@ -178,3 +178,63 @@ export const isValidCoordinate = ([lng, lat]: [number, number]) => {
     lat >= -90 && lat <= 90
   );
 }
+
+/**
+ * Calculate the distance between two geographical points.
+ * @param lat1 Latitude of the first point
+ * @param lon1 Longitude of the first point
+ * @param lat2 Latitude of the second point
+ * @param lon2 Longitude of the second point
+ * @returns Distance in meters
+ */
+export const distanceInMeters = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+  const R = 6371000; // meters
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) *
+      Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c; 
+}
+
+/**
+ * Shallow compare arrays of objects by id, latitude, longitude that may move slightly (within minDistance), exemple bus positions
+ * @param arr1 First array to compare
+ * @param arr2 Second array to compare
+ * @param minDistance Minimum distance to consider
+ * @returns True if arrays are equal, false otherwise
+ */
+export const shallowEqualArrayWithDistanceMovingLatLng = (arr1: any[], arr2: any[], minDistance = 5) => {
+  if (arr1.length !== arr2.length) return false;
+  for (let i = 0; i < arr1.length; i++) {
+    if (
+      arr1[i].id !== arr2[i].id ||
+      distanceInMeters(arr1[i].latitude, arr1[i].longitude, arr2[i].latitude, arr2[i].longitude) > minDistance
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Shallow compare arrays of objects by id, latitude, longitude for not moving objects, exemple bus stops
+ * @param arr1 First array to compare
+ * @param arr2 Second array to compare
+ * @returns True if arrays are equal, false otherwise
+ */
+export const shallowEqualArray = (arr1: any[], arr2: any[]) => {
+  if (arr1.length !== arr2.length) return false;
+  for (let i = 0; i < arr1.length; i++) {
+    if (arr1[i].id !== arr2[i].id ||
+      arr1[i].latitude !== arr2[i].latitude ||
+      arr1[i].longitude !== arr2[i].longitude) {
+      return false;
+    }
+  }
+  return true;
+}
