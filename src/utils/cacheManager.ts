@@ -318,4 +318,5 @@ export const CACHE_KEYS = {
   BUSES: 'bus_positions',
   BUS_HORARIO: 'bus_hours',
   BUS_HORARIO_DADOS: 'bus_hours_dados',
+  NUMEROS_BUS_DADOS: 'numeros_bus_dados',
 } as const;

@@ -1,6 +1,6 @@
 import { busService, stopService } from '@/src/services/api';
 import { useAppStore } from '@/src/store';
-import { BusLineV2, BusStop, EnhancedBus } from '@/src/types';
+import { BusLine, BusStop, EnhancedBus } from '@/src/types';
 import { haversineDistance2, utmToLatLngZone23S } from '@/src/utils/geoUtils';
 import { matchesLineNumber } from '@/src/utils/lineUtils';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -19,7 +19,7 @@ import { useBusFavorites } from '../../hooks/useFavorites';
 const { MapView, Camera, ShapeSource, LineLayer, CircleLayer, PointAnnotation } = MapLibreGL;
 
 interface LineRouteMapProps {
-  line: BusLineV2;
+  line: BusLine;
   currentStop: BusStop;
   onBack: () => void;
 }
@@ -80,8 +80,8 @@ const LineRouteMap: React.FC<LineRouteMapProps> = ({ line, currentStop, onBack }
           busService.getEnhancedBuses(undefined, '30min'),
         ]);
         
-        const MAX_DISTANCE_METERS = 5; // due being very precise
-        const routeCoords = line.geolinhas.flatMap(geo => geo.coordinates);
+  const MAX_DISTANCE_METERS = 5; // due being very precise
+  const routeCoords = (line.coordinates || []) as [number, number][];
         // const stopCoord: [number, number] = [stop.longitude, stop.latitude];
 
         // Find stops that have this line and direction
@@ -91,7 +91,7 @@ const LineRouteMap: React.FC<LineRouteMapProps> = ({ line, currentStop, onBack }
               // Quebra o formato "numero - sentido"
               const [numero, sentido] = lp.split(' - ').map(s => s.trim().toUpperCase());
               return (
-                numero === String(line.numero).toUpperCase() &&
+                numero === String(line.linha).toUpperCase() &&
                 sentido === String(line.sentido).toUpperCase()
               );
             })
@@ -120,7 +120,7 @@ const LineRouteMap: React.FC<LineRouteMapProps> = ({ line, currentStop, onBack }
         setStops(routeStops);
 
         // Initial bus filtering (relaxed: matches or includes line numero substring)
-        let lineBuses = enhancedBuses.filter(bus => matchesLineNumber(bus.linha, line.numero) || bus.linha?.includes(String(line.numero)));
+        let lineBuses = enhancedBuses.filter(bus => matchesLineNumber(bus.linha, line.linha) || bus.linha?.includes(String(line.linha)));
         if (lineBuses.length === 0 && enhancedBuses.length > 0) {
           // fallback: any bus within 60m of route polyline (heuristic)
           lineBuses = enhancedBuses.filter(b => {
@@ -137,18 +137,17 @@ const LineRouteMap: React.FC<LineRouteMapProps> = ({ line, currentStop, onBack }
         }
         setBuses(lineBuses);
         
-        if (line.geolinhas && line.geolinhas.length > 0) {
+        if (routeCoords && routeCoords.length > 0) {
           let minLng = Infinity, maxLng = -Infinity;
           let minLat = Infinity, maxLat = -Infinity;
 
           // Include route coordinates
-          line.geolinhas.forEach(geo => {
-            geo.coordinates.forEach(([lng, lat]) => {
-              minLng = Math.min(minLng, lng);
-              maxLng = Math.max(maxLng, lng);
-              minLat = Math.min(minLat, lat);
-              maxLat = Math.max(maxLat, lat);
-            });
+          routeCoords.forEach(([lng, lat]) => {
+            if (!isFinite(lng) || !isFinite(lat)) return;
+            minLng = Math.min(minLng, lng);
+            maxLng = Math.max(maxLng, lng);
+            minLat = Math.min(minLat, lat);
+            maxLat = Math.max(maxLat, lat);
           });
 
           // Include current stop to ensure it's visible
@@ -197,10 +196,10 @@ const LineRouteMap: React.FC<LineRouteMapProps> = ({ line, currentStop, onBack }
     const interval = setInterval(async () => {
       try {
         const boundsParam = routeBoundsRef.current || undefined;
-  const enhancedBuses = await busService.getEnhancedBuses(boundsParam, '30min');
-        let lineBuses = enhancedBuses.filter(bus => matchesLineNumber(bus.linha, line.numero) || bus.linha?.includes(String(line.numero)));
-        if (lineBuses.length === 0 && enhancedBuses.length > 0 && line.geolinhas?.length) {
-          const routeCoords = line.geolinhas.flatMap(g => g.coordinates);
+        const enhancedBuses = await busService.getEnhancedBuses(boundsParam, '30min');
+        let lineBuses = enhancedBuses.filter(bus => matchesLineNumber(bus.linha, line.linha) || bus.linha?.includes(String(line.linha)));
+        if (lineBuses.length === 0 && enhancedBuses.length > 0 && (line.coordinates?.length)) {
+          const routeCoords = (line.coordinates || []) as [number, number][];
           lineBuses = enhancedBuses.filter(b => {
             const busCoord: [number, number] = [b.longitude, b.latitude];
             let min = Infinity;
@@ -249,27 +248,25 @@ const LineRouteMap: React.FC<LineRouteMapProps> = ({ line, currentStop, onBack }
   
   // Convert route to GeoJSON
   const routeGeoJSON = useMemo(() => {
-    if (!line.geolinhas || line.geolinhas.length === 0) {
+    const coords = (line.coordinates || []) as [number, number][];
+    if (!coords || coords.length === 0) {
       return {
         type: 'FeatureCollection' as const,
         features: [],
       };
     }
-
-    const features = line.geolinhas.map((geo, index) => ({
-      type: 'Feature' as const,
-      properties: {
-        id: `route-${index}`,
-      },
-      geometry: {
-        type: geo.type as 'LineString',
-        coordinates: geo.coordinates,
-      },
-    }));
-
     return {
       type: 'FeatureCollection' as const,
-      features,
+      features: [
+        {
+          type: 'Feature' as const,
+          properties: { id: 'route-0' },
+          geometry: {
+            type: (line.tipo || 'LineString') as 'LineString',
+            coordinates: coords,
+          },
+        },
+      ],
     };
   }, [line]);
 
@@ -329,16 +326,10 @@ const LineRouteMap: React.FC<LineRouteMapProps> = ({ line, currentStop, onBack }
 
   // Calcular pontos de início e fim da rota
   const routeEndpoints = useMemo(() => {
-    if (!line.geolinhas || line.geolinhas.length === 0) return null;
-    
-    const firstRoute = line.geolinhas[0];
-    const lastRoute = line.geolinhas[line.geolinhas.length - 1];
-    
-    if (!firstRoute.coordinates || firstRoute.coordinates.length === 0) return null;
-    if (!lastRoute.coordinates || lastRoute.coordinates.length === 0) return null;
-    
-    const start = firstRoute.coordinates[0];
-    const end = lastRoute.coordinates[lastRoute.coordinates.length - 1];
+    const coords = (line.coordinates || []) as [number, number][];
+    if (!coords || coords.length === 0) return null;
+    const start = coords[0];
+    const end = coords[coords.length - 1];
     
     // Validar se as coordenadas estão dentro de uma região razoável (DF)
     const isValidCoord = (coord: [number, number]) => {
@@ -366,7 +357,7 @@ const LineRouteMap: React.FC<LineRouteMapProps> = ({ line, currentStop, onBack }
         </TouchableOpacity>
         <View style={styles.headerInfo}>
           <Text style={[styles.headerTitle, { color: appTheme === 'dark' ? '#fff' : '#000' }]}>
-            Linha {line.numero}
+            Linha {line.linha}
           </Text>
           <Text style={[styles.headerSubtitle, { color: appTheme === 'dark' ? '#aaa' : '#666' }]}>
             {line.sentido}

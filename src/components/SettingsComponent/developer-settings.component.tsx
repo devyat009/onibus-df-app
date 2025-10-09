@@ -100,7 +100,7 @@ const DeveloperOptions = () => {
           break;
 
         case 'lines':
-          data = await busService.getLinesV2Cached();
+          data = await busService.getLinesCached();
           break;
 
         case 'frota':

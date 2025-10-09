@@ -64,10 +64,11 @@ export interface BusStopDados {
 }
 
 export interface BusLine {
-  id: string;
-  codigo: string;
+  id: number;
+  linha: string;
   nome: string;
-  servico: string;
+  sentido: string;
+  tarifa: number;
   coordinates: [number, number][]; // [lng, lat] format
   tipo: 'LineString' | 'MultiLineString';
 }
@@ -110,7 +111,7 @@ export interface StopSchedule {
 export interface StopScheduleV2 {
   stop: BusStop;
   lines: {
-    line: BusLineV2;
+    line: BusLine;
     schedules: BusHorarioV2[];
   }[];
 }
@@ -137,6 +138,17 @@ export interface FrotaOperadora {
   operadora: string;
   numeroVeiculo: string;
   tipoOnibus: string;
+}
+
+export interface DadosNumerosVeiculos {
+  numero: string;
+  descricao: string;
+  sentido: string;
+  tarifa: string;
+  operadoras: {
+    id_operadora: number;
+    nome: string;
+  }
 }
 
 export interface MapBounds {
@@ -253,12 +265,13 @@ export interface Stop2025ApiProperties {
 
 
 export interface LineApiProperties {
-  cd_linha?: string;
+  id: number;
   linha?: string;
-  servico?: string;
-  cd_linha_principal?: string;
-  codigo?: string;
-  cod_linha?: string;
+  sentido?: string;
+  nome: string;
+  tarifa?: number;
+  situacao?: string;
+  situacao_da_linha?: boolean;
 }
 
 export interface LineV2ApiProperties {
@@ -295,6 +308,17 @@ export interface HorarioV2Api {
   sentido: string;
   tempo_percurso: number;
   horarios: string[];
+}
+
+export interface NumerosDadosApiProperties {
+  numero: string;
+  descricao: string;
+  sentido: string;
+  tarifa: string;
+  operadoras: {
+    id_operadora: number;
+    nome: string;
+  }[];
 }
 
 // App configuration - geo is different than dados 

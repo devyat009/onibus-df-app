@@ -1,5 +1,5 @@
 import { useAppStore } from "../store";
-import { ApiResponse, Bus, BusApiProperties, BusLine, BusLineV2, BusStop, EnhancedBus, FrotaOperadora, LineApiProperties, MapBounds, NewBusGeoApiResponse, StopRealtimeArrivalsMap } from "../types";
+import { ApiResponse, Bus, BusApiProperties, BusLine, BusLineV2, BusStop, DadosNumerosVeiculos, EnhancedBus, FrotaOperadora, LineApiProperties, MapBounds, NewBusGeoApiResponse, StopRealtimeArrivalsMap } from "../types";
 import { CACHE_KEYS, CacheOptions, getCachedOrFetch } from "../utils/cacheManager";
 import appConfig from "../utils/config";
 import { createBoundsFromRadius, haversineDistance, utmToLatLngZone23S } from "../utils/geoUtils";
@@ -181,11 +181,12 @@ export class BusService {
 		// Use filter from store if not provided as parameter
 		const filterToUse = timeFilter || useAppStore.getState().busTimeFilter;
 
-		// Get buses and frota data in parallel
-		const [buses, frota] = await Promise.all([
-			this.getBuses(bounds, filterToUse),
-			this.frotaService.getFrotaCached() // Use cached frota data
-		]);
+			// Get buses, frota and numeros data in parallel
+			const [buses, frota, numeros] = await Promise.all([
+				this.getBuses(bounds, filterToUse),
+				this.frotaService.getFrotaCached(), // Use cached frota data
+				this.frotaService.getNumerosVeiculosCached(),
+			]);
 
 		// console.log(`Enhanced buses - got ${buses.length} buses from getBuses`);
 		// console.log(`Enhanced buses - got ${frota.length} frota entries`);
@@ -200,8 +201,27 @@ export class BusService {
 
 		// console.log(`Enhanced buses - created frotaMap with ${frotaMap.size} entries`);
 
-		// Enhance buses with operator information
-		const enhancedBuses = buses.map(bus => this.enhanceBusWithOperator(bus, frotaMap));
+			// Enhance buses with operator information
+			const enhancedWithOperator = buses.map(bus => this.enhanceBusWithOperator(bus, frotaMap));
+
+			// Build a fast lookup for dados numeros by normalized numero+sentido
+			const numerosMap = new Map<string, DadosNumerosVeiculos>();
+			const makeKey = (numero?: string, sentido?: string) => {
+				const n = numero ? normalizeLineNumber(stripLeadingZeros(numero)) : '';
+				const s = sentido ? normalizeSentido(sentido) : '';
+				return `${n}|${s}`;
+			};
+			numeros.forEach(n => {
+				if (!n?.numero) return;
+				numerosMap.set(makeKey(n.numero, n.sentido), n);
+			});
+
+			// Attach numeroDados info directly into EnhancedBus
+			const enhancedBuses = enhancedWithOperator.map(bus => {
+				const key = makeKey(bus.linha, bus.sentido);
+				const numeroDados = numerosMap.get(key);
+				return numeroDados ? { ...bus, numeroDados } : bus;
+			});
 
 		// console.log(`Enhanced buses - returning ${enhancedBuses.length} enhanced buses`);
 
@@ -217,7 +237,7 @@ export class BusService {
 	 */
 	async getRealtimeArrivalsForStop(
 		stop: BusStop,
-		lines: BusLineV2[],
+		lines: BusLine[],
 		options?: {
 			radiusMeters?: number;
 			maxPerLine?: number;
@@ -270,7 +290,7 @@ export class BusService {
 		}
 
 		type LineDescriptor = {
-			line: BusLineV2;
+			line: BusLine;
 			sentido: string;
 			key: string;
 			normalized: string;
@@ -278,13 +298,13 @@ export class BusService {
 			trimmed: string;
 		};
 		const descriptors: LineDescriptor[] = lines.map(line => {
-			const normalized = normalizeLineNumber(line.numero);
+			const normalized = normalizeLineNumber(line.linha);
 			const digits = normalized.replace(/[^0-9]/g, '');
 			const trimmed = digits ? stripLeadingZeros(digits) : '';
 			return {
 				line,
 				sentido: normalizeSentido(line.sentido),
-				key: buildLineKey(line.numero, line.sentido),
+				key: buildLineKey(line.linha, line.sentido),
 				normalized,
 				digits,
 				trimmed,
@@ -420,7 +440,7 @@ export class BusService {
 							trimmedDigits,
 							sentido: bus.sentido,
 							fallbackMatches: fallbackMatches.map(match => ({
-								numero: match.line.numero,
+								numero: match.line.linha,
 								sentido: match.line.sentido,
 								key: match.key,
 								digits: match.digits,
@@ -476,14 +496,14 @@ export class BusService {
 			const isApproaching = distanceToStop <= 120 || etaValue <= 2;
 
 			candidateDescriptors.forEach(descriptor => {
-				if (!matchesLineNumber(bus.linha, descriptor.line.numero)) {
+				if (!matchesLineNumber(bus.linha, descriptor.line.linha)) {
 					stats.lineMismatch += 1;
 					if (samples.lineMismatch.length < 5) {
 						samples.lineMismatch.push({
 							busId: bus.prefixo,
 							rawLinha: bus.linha,
 							normalizedLinha: normalized,
-							descriptorNumero: descriptor.line.numero,
+							descriptorNumero: descriptor.line.linha,
 							descriptorKey: descriptor.key
 						});
 						// console.warn('[RealtimeArrivals] Line mismatch candidate', JSON.stringify(samples.lineMismatch[samples.lineMismatch.length - 1]));
@@ -787,9 +807,9 @@ export class BusService {
 			return null;
 		}
 
-		const codigo = properties.cd_linha || properties.linha || properties.servico || properties.codigo || properties.cod_linha || '';
+		const linha = properties.linha || '';
 
-		if (!codigo) {
+		if (!linha) {
 			return null;
 		}
 
@@ -812,10 +832,11 @@ export class BusService {
 		});
 
 		return {
-			id: codigo,
-			codigo,
-			nome: codigo,
-			servico: properties.servico || codigo,
+			id: properties.id,
+			linha,
+      nome: properties.nome || '',
+      sentido: properties.sentido || '',
+      tarifa: properties.tarifa || 0,
 			coordinates,
 			tipo: geometry.type as 'LineString' | 'MultiLineString',
 		};

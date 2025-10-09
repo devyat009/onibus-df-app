@@ -1,7 +1,7 @@
 import { useBusFavorites, useStopFavorites } from '@/src/hooks/useFavorites';
-import { busService, stopService } from '@/src/services/api';
+import { busService, frotaService, stopService } from '@/src/services/api';
 import { useAppStore } from '@/src/store';
-import { BusLineV2, BusStop, StopRealtimeArrivalsMap, StopScheduleV2 } from '@/src/types';
+import { BusLine, BusStop, StopRealtimeArrivalsMap, StopScheduleV2 } from '@/src/types';
 import { buildLineKey } from '@/src/utils/lineUtils';
 import { FontAwesome5, MaterialIcons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
@@ -38,7 +38,7 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
   const [realtimeError, setRealtimeError] = useState<string | null>(null);
   
   // Route map view state
-  const [selectedLineForMap, setSelectedLineForMap] = useState<BusLineV2 | null>(null);
+  const [selectedLineForMap, setSelectedLineForMap] = useState<BusLine | null>(null);
 
   // Favorites using custom hook
   const { isFavorite, toggleFavorite } = useStopFavorites();
@@ -227,6 +227,23 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
     // If no future schedules, return the last past schedules (showing what already passed)
     return pastSchedules.slice(-limit);
   };
+
+  const getBusInfo = (lineNumber: string, sentido: string) => {
+    // doesn't infer a void return type and can be used directly in render logic.
+    frotaService.getNumerosVeiculosCached()
+      .then(data => {
+        const busInfo = data.find(bus => bus.numero.toLowerCase() === lineNumber.toLowerCase() && bus.sentido.toLowerCase() === sentido.toLowerCase());
+        if (busInfo) {
+          console.warn('[STOPDETAIL] Found bus info:', busInfo);
+        }
+      })
+      .catch(err => {
+        console.warn('[STOPDETAIL] Error fetching bus info:', err);
+      });
+
+    // Synchronous fallback used in the UI until/if async data arrives (logged above).
+    return { descricao: 'N/A' };
+  }
 
   const buildDisplayItems = (
     lineNumber: string,
@@ -469,7 +486,7 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
             // Group lines by line number to avoid duplicates
             const lineGroups = new Map<string, typeof scheduleData.lines>();
             scheduleData.lines.forEach(lineData => {
-              const lineNumber = lineData.line.numero;
+              const lineNumber = lineData.line.linha;
               if (!lineGroups.has(lineNumber)) {
                 lineGroups.set(lineNumber, []);
               }
@@ -491,12 +508,12 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
               const lineData = lineDatas[0];
               
               // Build display items to check if has realtime
-              const lineKey = buildLineKey(lineData.line.numero, lineData.line.sentido);
+              const lineKey = buildLineKey(lineData.line.linha, lineData.line.sentido);
               const realtimeItems = realtimeArrivals[lineKey]?.arrivals ?? [];
               const hasRealtime = realtimeItems.length > 0;
               
               // Check if line is favorite
-              const isFavorite = isBusFavorite(lineData.line.numero);
+              const isFavorite = isBusFavorite(lineData.line.linha);
               
               // Get the minimum ETA for sorting
               let minEta = Infinity;
@@ -509,6 +526,7 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
                 scheduleDate.setHours(hours, minutes, 0, 0);
                 minEta = Math.round((scheduleDate.getTime() - now.getTime()) / 60000);
               }
+
               
               return {
                 lineData,
@@ -551,7 +569,7 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
 
             return sortedLines.map(({ lineData, index, nextSchedules, isFavorite }) => (
               <View
-                key={`line-${lineData.line.numero}-${lineData.line.sentido}-${index}`}
+                key={`line-${lineData.line.linha}-${lineData.line.sentido}-${index}`}
                 style={[
                   styles.lineCard,
                   {
@@ -564,14 +582,14 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
                   <MaterialIcons name="directions-bus" size={24} color="#007AFF" />
                   <View style={styles.lineInfo}>
                     <Text style={[styles.lineTitle, { color: appTheme === 'dark' ? '#fff' : '#000' }]}>
-                      Linha {lineData.line.numero}
+                      Linha {lineData.line.linha} - {lineData.line.nome}
                     </Text>
                   </View>
 
                   <View style={styles.schedulesContainer}>
                     {(() => {
                       const displayItems = buildDisplayItems(
-                        lineData.line.numero,
+                        lineData.line.linha,
                         lineData.line.sentido,
                         nextSchedules,
                       );
@@ -618,7 +636,7 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
                                     ? { backgroundColor: '#FFD600', borderColor: '#FFD600' }
                                     : { backgroundColor: appTheme === 'dark' ? '#242424ff' : '#f0f0f0' }
                                 ]}
-                                onPress={() => toggleBusFavorite(lineData.line.numero)}
+                                onPress={() => toggleBusFavorite(lineData.line.linha)}
                                 activeOpacity={0.7}
                               >
                                 <MaterialIcons
@@ -684,7 +702,7 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
                                         ? `${labels} min`
                                         : secondaryItems.map((item, idx) => (
                                             <Text
-                                              key={`${lineData.line.numero}-${idx}`}
+                                              key={`${lineData.line.linha}-${idx}`}
                                               style={[
                                                 styles.nextScheduleText,
                                                 item.isRealtime ? { color: '#00C853' } : null,

@@ -1,4 +1,4 @@
-import { ApiResponse, CacheOptions, FrotaApiProperties, FrotaOperadora } from '../types';
+import { ApiResponse, CacheOptions, DadosNumerosVeiculos, FrotaApiProperties, FrotaOperadora } from '../types';
 import { CACHE_KEYS, getCachedOrFetch } from '../utils/cacheManager';
 import appConfig from '../utils/config';
 import { ApiService } from './api';
@@ -41,6 +41,39 @@ export class FrotaService {
     );
   }
 
+  async getNumerosVeiculos(): Promise<DadosNumerosVeiculos[]> {
+    const response = await fetch(`${this.baseUrl}${appConfig.api.endpoints.dadosNumeros}`, {
+      headers: {
+        'Accept': 'application/json',
+      },
+      cache: 'no-store',
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch numeros veiculos: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+
+    // API returns array directly, not wrapped in features
+    const rawFeatures = Array.isArray(data) ? data : [];
+
+    const numerosBuses = rawFeatures
+      .map((feature: any) => this.transformNumerosVeiculosFromApi(feature))
+      .filter((num) => num !== null) as DadosNumerosVeiculos[];
+
+    return numerosBuses;
+
+  };
+
+  async getNumerosVeiculosCached(options?: CacheOptions): Promise<DadosNumerosVeiculos[]> {
+      return getCachedOrFetch(
+        CACHE_KEYS.NUMEROS_BUS_DADOS,
+        () => this.getNumerosVeiculos(),
+        options
+      );
+    }
+
 
   // ## Helpers
 
@@ -60,5 +93,19 @@ export class FrotaService {
       numeroVeiculo: properties.numero_veiculo || '',
       tipoOnibus: properties.tipo_onibus || '',
     } as FrotaOperadora;
+  }
+
+  private transformNumerosVeiculosFromApi(feature: any): DadosNumerosVeiculos | null {
+      if (!feature) return null;
+      return {
+        numero: feature.numero,
+        descricao: feature.descricao,
+        sentido: feature.sentido,
+        tarifa: feature.tarifa,
+        operadoras: feature.operadoras?.map((op: any) => ({
+          id_operadora: op.id_operadora,
+          nome: op.nome,
+        })) ?? [],
+      };
   }
 }

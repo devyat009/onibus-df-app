@@ -19,9 +19,10 @@ const RootLayout = () => {
   useEffect(() => {
     const fetchData = async () => {
       await Promise.all([
-        busService.getLinesV2Cached().catch(console.error),
+        busService.getLinesCached().catch(console.error),
         stopService.getHorarioV2Cached().catch(console.error),
         frotaService.getFrotaCached().catch(console.error),
+        frotaService.getNumerosVeiculosCached().catch(console.error),
       ]);
     };
     fetchData();

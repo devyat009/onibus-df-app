@@ -1,4 +1,4 @@
-import { ApiResponse, BusHorario, BusHorarioV2, BusLine, BusLineV2, BusStop, BusStopDados, HorarioApiProperties, MapBounds, Stop2025ApiProperties, StopSchedule, StopScheduleV2 } from "../types";
+import { ApiResponse, BusHorario, BusHorarioV2, BusLine, BusLineV2, BusStop, BusStopDados, HorarioApiProperties, MapBounds, Stop2025ApiProperties, StopScheduleV2 } from "../types";
 import { CACHE_KEYS, CacheOptions, getCachedOrFetch } from "../utils/cacheManager";
 import appConfig from "../utils/config";
 import { getLineBounds, pointToLineDistance } from "../utils/geoUtils";
@@ -258,69 +258,69 @@ export class StopService {
     }));
   }
 
-  /**
-  * Get the bus schedules for a specific stop, with caching from GeoServer
-  * @param stop BusStop object
-  * @returns Array of BusHorario
-  */
-  async getStopSchedule(stop: BusStop): Promise<StopSchedule> {
-    // console.log(`Getting schedule for stop: ${stop.codigo} - ${stop.nome}`);
+  // /**
+  // * Get the bus schedules for a specific stop, with caching from GeoServer
+  // * @param stop BusStop object
+  // * @returns Array of BusHorario
+  // */
+  // async getStopSchedule(stop: BusStop): Promise<StopSchedule> {
+  //   // console.log(`Getting schedule for stop: ${stop.codigo} - ${stop.nome}`);
 
-    const [lines, horarios] = await Promise.all([
-      this.busService.getLinesCached(),
-      this.getHorario()
-    ]);
+  //   const [lines, horarios] = await Promise.all([
+  //     this.busService.getLinesCached(),
+  //     this.getHorario()
+  //   ]);
 
-    // console.log(`Loaded ${lines.length} lines and ${horarios.length} schedules`);
+  //   // console.log(`Loaded ${lines.length} lines and ${horarios.length} schedules`);
 
-    let relevantLines: BusLine[] = [];
+  //   let relevantLines: BusLine[] = [];
 
 
-    // If still no matches, try proximity algorithm with multiple tolerances
-    if (relevantLines.length === 0) {
-      // console.log('Strategy 2 failed, trying strategy 3: Proximity algorithm...');
-      const tolerances = [100, 300, 500, 1000, 2000]; // Try increasing distances
+  //   // If still no matches, try proximity algorithm with multiple tolerances
+  //   if (relevantLines.length === 0) {
+  //     // console.log('Strategy 2 failed, trying strategy 3: Proximity algorithm...');
+  //     const tolerances = [100, 300, 500, 1000, 2000]; // Try increasing distances
 
-      for (const tolerance of tolerances) {
-        console.log(`Trying proximity with ${tolerance}m tolerance...`);
-        relevantLines = lines.filter(line => {
-          const passesThrough = this.doesLinePassThroughStop(line, stop, tolerance);
-          if (passesThrough) {
-            console.log(`Strategy 3: Line ${line.codigo} passes through stop ${stop.codigo} with ${tolerance}m tolerance`);
-          }
-          return passesThrough;
-        });
+  //     for (const tolerance of tolerances) {
+  //       console.log(`Trying proximity with ${tolerance}m tolerance...`);
+  //       relevantLines = lines.filter(line => {
+  //         const passesThrough = this.doesLinePassThroughStop(line, stop, tolerance);
+  //         if (passesThrough) {
+  //           console.log(`Strategy 3: Line ${line.codigo} passes through stop ${stop.codigo} with ${tolerance}m tolerance`);
+  //         }
+  //         return passesThrough;
+  //       });
 
-        if (relevantLines.length > 0) {
-          console.log(`Found ${relevantLines.length} lines with ${tolerance}m tolerance`);
-          break;
-        }
-      }
-    }
+  //       if (relevantLines.length > 0) {
+  //         console.log(`Found ${relevantLines.length} lines with ${tolerance}m tolerance`);
+  //         break;
+  //       }
+  //     }
+  //   }
 
-    // console.log(`Found ${relevantLines.length} lines that might serve stop ${stop.codigo}`);
+  //   // console.log(`Found ${relevantLines.length} lines that might serve stop ${stop.codigo}`);
 
-    // Group schedules by line
-    const linesWithSchedules = relevantLines.map(line => {
-      const lineSchedules = horarios.filter(horario =>
-        horario.cd_linha === line.codigo
-      );
+  //   // Group schedules by line
+  //   const linesWithSchedules = relevantLines.map(line => {
+  //     const lineSchedules = horarios.filter(horario =>
+  //       horario.cd_linha === line.linha
+  //     );
 
-      console.log(`Line ${line.codigo} has ${lineSchedules.length} schedules`);
+  //     console.log(`Line ${line.linha} has ${lineSchedules.length} schedules`);
 
-      return {
-        line,
-        schedules: lineSchedules.sort((a, b) => a.hr_prevista.localeCompare(b.hr_prevista))
-      };
-    }).filter(item => item.schedules.length > 0);
+  //     return {
+  //       line,
+  //       schedules: lineSchedules.sort((a, b) => a.hr_prevista.localeCompare(b.hr_prevista))
+  //     };
+  //   }).filter(item => item.schedules.length > 0);
 
-    // console.log(`Final result: ${linesWithSchedules.length} lines with schedules`);
+  //   // console.log(`Final result: ${linesWithSchedules.length} lines with schedules`);
 
-    return {
-      stop,
-      lines: linesWithSchedules
-    };
-  }
+  //   return {
+  //     stop,
+  //     lines: linesWithSchedules
+  //   };
+  // }
 
   /**
    * Get the schedule for a specific bus stop
@@ -329,7 +329,7 @@ export class StopService {
    */
   async getStopScheduleV2(stop: BusStop): Promise<StopScheduleV2> {
     // console.log(`[GETSTOPSCHEDULEV2] Getting V2 schedule for stop: ${stop.codigo} - ${stop.nome}`);
-    const lines = await this.busService.getLinesV2();
+    const lines = await this.busService.getLines();
     const horarios = await this.getHorarioV2Cached();
     const paradas = await this.getStopDadosCached();
 
@@ -346,7 +346,7 @@ export class StopService {
       return upperSentido.charAt(0);
     };
 
-    let relevantLines: BusLineV2[] = [];
+    let relevantLines: BusLine[] = [];
 
     if (Array.isArray(paradas)) {
       for (const parada of paradas) {
@@ -362,7 +362,7 @@ export class StopService {
             const sentido = parts[1].trim();
 
             const matchedLine = lines.find(
-              line => line.numero === numero && line.sentido === sentido
+              line => line.linha === numero && line.sentido === sentido
             );
 
             if (matchedLine && !relevantLines.includes(matchedLine)) {
@@ -379,7 +379,7 @@ export class StopService {
       const sentidoAbbrev = mapSentidoToAbbreviation(line.sentido);
 
       const matchingSchedules = horarios.filter(
-        horario => horario.numero_linha === line.numero && horario.sentido === sentidoAbbrev
+        horario => horario.numero_linha === line.linha && horario.sentido === sentidoAbbrev
       );
 
       // console.log(`[GETSTOPSCHEDULEV2] Line ${line.numero} (${line.sentido} -> ${sentidoAbbrev}): ${matchingSchedules.length} schedules found`);
