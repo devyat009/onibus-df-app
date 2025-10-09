@@ -110,7 +110,7 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
 
         const lines = scheduleData.lines.map(item => item.line);
         const realtime = await busService.getRealtimeArrivalsForStop(stop, lines, {
-          radiusMeters: 2000,
+          radiusMeters: 10000,
           maxPerLine: 3,
           maxEtaMinutes: 60,
         });
@@ -156,6 +156,7 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
   };
 
   const getNextSchedules = (horarios: any[], limit = 5) => {
+    
     const now = new Date();
     const currentTime = now.getHours() * 60 + now.getMinutes();
     const currentDay = now.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
@@ -249,7 +250,7 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
       });
     });
 
-    if (items.length < 3) {
+    //if (items.length < 3) {
       fallbackSchedules.forEach(schedule => {
         if (!schedule) return;
         if (items.length >= 3) return;
@@ -269,8 +270,7 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
           isPast,
         });
       });
-    }
-
+    //}
     return items.slice(0, 3);
   };
 
@@ -319,6 +319,9 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
                 {/* Route icon and time squares side by side */}
                 <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-start' }}>
                   {/* Route button skeleton */}
+                  <View style={{ alignItems: 'center' }}>
+                    <SkeletonPlaceholder width={60} height={40} borderRadius={12} isDark={isDark} />
+                  </View>
                   <View style={{ alignItems: 'center' }}>
                     <SkeletonPlaceholder width={60} height={40} borderRadius={12} isDark={isDark} />
                   </View>
@@ -672,22 +675,24 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
                               {/* Next schedules below */}
                               {hasSecondary && !showPastLabel && (
                                 <View style={styles.nextSchedulesContainer}>
-                                  <Text style={styles.nextScheduleText}>
+                                  <Text style={[styles.nextScheduleText, { color: '#666' }]}>
                                     {(() => {
                                       const allMinutes = secondaryItems.every(item => item.unit === 'min');
+                                      const anyRealtime = secondaryItems.some(item => item.isRealtime);
                                       const labels = secondaryItems.map(item => item.label).join(', ');
-                                      return allMinutes
+                                      return allMinutes && !anyRealtime
                                         ? `${labels} min`
                                         : secondaryItems.map((item, idx) => (
                                             <Text
                                               key={`${lineData.line.numero}-${idx}`}
                                               style={[
                                                 styles.nextScheduleText,
-                                                { color: item.isRealtime ? '#00C853' : '#666' },
+                                                item.isRealtime ? { color: '#00C853' } : null,
                                               ]}
                                             >
                                               {idx > 0 ? ', ' : ''}
                                               {item.label}
+                                              {item.unit ? ` ${item.unit}` : ''}
                                             </Text>
                                           ));
                                     })()}
@@ -785,6 +790,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 32,
+    //borderWidth: 1,
+    //borderColor: '#e1c10dff',
   },
   loadingText: {
     marginTop: 16,
@@ -809,14 +816,17 @@ const styles = StyleSheet.create({
   },
   lineCard: {
     borderRadius: 10,
-    padding: 10,
+    padding: 6,
     marginBottom: 10,
     borderWidth: 1,
+    //borderColor: '#9d0f81ff',
   },
   lineHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
+    //marginBottom: 10,
+    //borderColor: '#9d0f0fff',
+    //borderWidth: 1,
   },
   lineInfo: {
     marginLeft: 8,
@@ -825,18 +835,26 @@ const styles = StyleSheet.create({
   lineTitle: {
     fontSize: 16,
     fontWeight: 'bold',
+    //borderColor: '#0fadbeff',
+    //borderWidth: 1,
   },
   lineSubtitle: {
     fontSize: 14,
     marginTop: 2,
+    //borderColor: '#1e0bcaff',
+    //borderWidth: 1,
   },
   sectionTitle: {
     fontSize: 16,
     fontWeight: '600',
     marginBottom: 8,
+    //borderWidth: 1,
+    //borderColor: '#0f9d58ff',
   },
   schedulesContainer: {
-    marginBottom: 12,
+    //marginBottom: 12,
+    //borderWidth: 1,
+    //borderColor: '#9706eaff',
   },
   scheduleItem: {
     flexDirection: 'row',
