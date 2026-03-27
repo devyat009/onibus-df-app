@@ -15,6 +15,13 @@ const RootLayout = () => {
   const [mountedStops, setMountedStops] = useState(false);
   const { appTheme } = useAppStore();
 
+  useEffect(() => {
+    busService.startGlobalTelemetry(30000);
+    return () => {
+      busService.stopGlobalTelemetry();
+    };
+  }, []);
+
   // Pre-fetch essential data on mount and cache it
   useEffect(() => {
     const fetchData = async () => {

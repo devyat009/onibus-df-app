@@ -125,7 +125,7 @@ export interface RealTimeArrivalEstimate {
 }
 
 export interface LineRealtimeArrivals {
-  line: BusLineV2;
+  line: BusLine;
   arrivals: RealTimeArrivalEstimate[];
 }
 
