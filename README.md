@@ -4,16 +4,16 @@ Este projeto é um aplicativo desenvolvido em React Native (Expo) para visualiza
 
 
 ### Mapa e visualização de paradas proximas
-| ![map](https://raw.githubusercontent.com/devyat009/image-repo-for-my-repo/refs/heads/main/bus-tracker/map.png) | ![map-options](https://raw.githubusercontent.com/devyat009/image-repo-for-my-repo/refs/heads/main/bus-tracker/paradas-proximas.png) |
+| ![map](https://raw.githubusercontent.com/devyat009/image-repo-for-my-repo/refs/heads/main/bus-tracker/v2/map.png) | ![map-options](https://raw.githubusercontent.com/devyat009/image-repo-for-my-repo/refs/heads/main/bus-tracker/v2/paradas-proximas.png) |
 |:---:|:---:|
 
 ### Configurações de mapa
 Opções como mostrar onibus ativos que estão se locomovendo, mostrar paradas e trânsito em tempo real.
-| ![map-all-options](https://raw.githubusercontent.com/devyat009/image-repo-for-my-repo/refs/heads/main/bus-tracker/map-all-options.png) | ![map-options](https://raw.githubusercontent.com/devyat009/image-repo-for-my-repo/refs/heads/main/bus-tracker/map-options.png) |
+| ![map-all-options](https://raw.githubusercontent.com/devyat009/image-repo-for-my-repo/refs/heads/main/bus-tracker/v2/map-all-options.png) | ![map-options](https://raw.githubusercontent.com/devyat009/image-repo-for-my-repo/refs/heads/main/bus-tracker/v2/map-option.png) |
 |:---:|:---:|
 
 ### Configurações (tema escuro e claro)
-| ![configuracoes](https://raw.githubusercontent.com/devyat009/image-repo-for-my-repo/refs/heads/main/bus-tracker/configuracoes.png) | ![configuracoes-white](https://raw.githubusercontent.com/devyat009/image-repo-for-my-repo/refs/heads/main/bus-tracker/configuracoes-white.png) |
+| ![configuracoes](https://raw.githubusercontent.com/devyat009/image-repo-for-my-repo/refs/heads/main/bus-tracker/v2/configuracoes.png) | ![configuracoes-white](https://raw.githubusercontent.com/devyat009/image-repo-for-my-repo/refs/heads/main/bus-tracker/v2/configuracoes-white.png) |
 |:---:|:---:|
 
 
