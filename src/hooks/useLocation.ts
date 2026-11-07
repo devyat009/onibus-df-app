@@ -1,7 +1,39 @@
 import * as Location from 'expo-location';
-import { useCallback, useEffect } from 'react';
+import { useCallback } from 'react';
 import { useAppStore } from '../store';
 import { UserLocation } from '../types';
+
+// Abaixo de ~0.75 m/s (~2.7 km/h) o GPS em repouso gera apenas ruído/deriva (multipath)
+const MIN_SPEED_MS_THRESHOLD = 0.75;
+
+function parseLocationCoords(location: Location.LocationObject, previousHeading?: number | null): UserLocation {
+  const rawSpeedMs = location.coords.speed;
+  const accuracy = location.coords.accuracy ?? 999;
+
+  let speedKmh = 0;
+  if (
+    rawSpeedMs != null &&
+    isFinite(rawSpeedMs) &&
+    rawSpeedMs >= MIN_SPEED_MS_THRESHOLD &&
+    !(accuracy > 25 && rawSpeedMs < 1.5)
+  ) {
+    speedKmh = rawSpeedMs * 3.6;
+  }
+
+  const heading =
+    location.coords.heading != null && location.coords.heading >= 0
+      ? location.coords.heading
+      : (previousHeading ?? null);
+
+  return {
+    latitude: location.coords.latitude,
+    longitude: location.coords.longitude,
+    accuracy: location.coords.accuracy || undefined,
+    timestamp: location.timestamp,
+    speed: speedKmh,
+    heading,
+  };
+}
 
 export const useLocation = () => {
   const { 
@@ -49,12 +81,8 @@ export const useLocation = () => {
         distanceInterval: 10,
       });
 
-      const userLoc: UserLocation = {
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-        accuracy: location.coords.accuracy || undefined,
-        timestamp: location.timestamp,
-      };
+      const currentLoc = useAppStore.getState().userLocation;
+      const userLoc = parseLocationCoords(location, currentLoc?.heading);
 
       setUserLocation(userLoc);
       return userLoc;
@@ -74,22 +102,36 @@ export const useLocation = () => {
         return null;
       }
 
+      let idleTimer: ReturnType<typeof setTimeout> | null = null;
+      const resetIdleTimer = () => {
+        if (idleTimer) clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => {
+          const current = useAppStore.getState().userLocation;
+          if (current && current.speed !== 0) {
+            setUserLocation({ ...current, speed: 0 });
+          }
+        }, 3500);
+      };
+
       const subscription = await Location.watchPositionAsync(
         {
-          accuracy: Location.Accuracy.Balanced,
-          timeInterval: 10000, // Update every 10 seconds
-          distanceInterval: 5, // Update every 5 meters
+          accuracy: Location.Accuracy.BestForNavigation,
+          timeInterval: 1000,
+          distanceInterval: 0,
         },
         (location) => {
-          const userLoc: UserLocation = {
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
-            accuracy: location.coords.accuracy || undefined,
-            timestamp: location.timestamp,
-          };
+          resetIdleTimer();
+          const currentLoc = useAppStore.getState().userLocation;
+          const userLoc = parseLocationCoords(location, currentLoc?.heading);
           setUserLocation(userLoc);
         }
       );
+
+      const originalRemove = subscription.remove.bind(subscription);
+      subscription.remove = () => {
+        if (idleTimer) clearTimeout(idleTimer);
+        originalRemove();
+      };
 
       return subscription;
     } catch (error) {
@@ -101,13 +143,6 @@ export const useLocation = () => {
   const clearLocation = useCallback(() => {
     setUserLocation(null);
   }, [setUserLocation]);
-
-  // Auto-request location on mount if not already available
-  useEffect(() => {
-    if (!userLocation) {
-      getCurrentLocation();
-    }
-  }, [getCurrentLocation, userLocation]);
 
   return {
     userLocation,

@@ -5,6 +5,26 @@ const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
 const FILESYSTEM_THRESHOLD = 100 * 1024; // 100KB - suggestion to original for deciding if to use FS
 const MAX_CACHE_FILE_SIZE = 40 * 1024 * 1024; // 40MB maximum for writing/reading at once
 const MAX_READ_FILE_SIZE = 45 * 1024 * 1024; // 45MB - if the file is larger than this, don't try to read
+const MAX_MEMORY_CACHE_ENTRIES = 30;
+const PROTECTED_STORAGE_KEYS = new Set([
+  'favorites_buses',
+  'favorites_stops',
+  'bus-tracker-storage',
+]);
+
+const memoryCache = new Map<string, { data: any; timestamp: number }>();
+
+function setMemoryCacheEntry(key: string, entry: { data: any; timestamp: number }) {
+  if (memoryCache.has(key)) {
+    memoryCache.delete(key);
+  } else if (memoryCache.size >= MAX_MEMORY_CACHE_ENTRIES) {
+    const oldestKey = memoryCache.keys().next().value;
+    if (oldestKey !== undefined) {
+      memoryCache.delete(oldestKey);
+    }
+  }
+  memoryCache.set(key, entry);
+}
 
 export interface CacheOptions {
   ttl?: number; // Time to live in milliseconds
@@ -15,13 +35,20 @@ function getFileUri(key: string) {
   return FileSystem.documentDirectory + key + '.json';
 }
 
-async function shouldUseFileSystem(data: any): Promise<boolean> {
-  try {
-    const str = typeof data === 'string' ? data : JSON.stringify(data);
-    return str.length > FILESYSTEM_THRESHOLD && str.length <= MAX_CACHE_FILE_SIZE;
-  } catch {
-    return false;
+function isCacheEntryUsable(key: string, cache: any): boolean {
+  if (cache === null || cache === undefined) return false;
+  if (Array.isArray(cache)) {
+    if (cache.length === 0) return false;
+    // Invalidate legacy bus_lines cache entries that were saved without 'sentido' and 'nome'
+    if (key === 'bus_lines') {
+      const hasValidSchema = cache.some((item: any) => Boolean(item?.sentido || item?.nome));
+      if (!hasValidSchema) {
+        console.warn('[CacheManager] Invalidating stale bus_lines cache with missing sentido/nome');
+        return false;
+      }
+    }
   }
+  return true;
 }
 
 export async function getCachedOrFetch<T>(
@@ -30,30 +57,43 @@ export async function getCachedOrFetch<T>(
   options: CacheOptions = {}
 ): Promise<T> {
   const { ttl = THREE_DAYS_MS, forceRefresh = false } = options;
+  const now = Date.now();
 
   if (forceRefresh) {
     const data = await fetcher();
+    setMemoryCacheEntry(key, { data, timestamp: now });
     await setCacheData(key, data);
     return data;
   }
 
+  const memEntry = memoryCache.get(key);
+  if (memEntry && now - memEntry.timestamp < ttl && isCacheEntryUsable(key, memEntry.data)) {
+    // Refresh LRU order
+    setMemoryCacheEntry(key, memEntry);
+    return memEntry.data as T;
+  }
+
   const timestamp = await AsyncStorage.getItem(`${key}_timestamp`);
-  const now = Date.now();
 
   if (timestamp && now - Number(timestamp) < ttl) {
     const cache = await getCacheData<T>(key);
-    if (cache !== null) return cache;
+    if (isCacheEntryUsable(key, cache)) {
+      setMemoryCacheEntry(key, { data: cache, timestamp: Number(timestamp) });
+      return cache as T;
+    }
   }
 
   const data = await fetcher();
+  setMemoryCacheEntry(key, { data, timestamp: Date.now() });
   await setCacheData(key, data);
   return data;
 }
 
 export async function setCacheData<T>(key: string, data: T): Promise<void> {
   try {
+    setMemoryCacheEntry(key, { data, timestamp: Date.now() });
     const str = typeof data === 'string' ? data : JSON.stringify(data);
-    const useFS = await shouldUseFileSystem(data);
+    const useFS = str.length > FILESYSTEM_THRESHOLD && str.length <= MAX_CACHE_FILE_SIZE;
 
     // If stringified data is too large, skip caching to avoid OOM.
     if (str.length > MAX_CACHE_FILE_SIZE) {
@@ -90,6 +130,11 @@ export async function setCacheData<T>(key: string, data: T): Promise<void> {
 
 export async function getCacheData<T>(key: string): Promise<T | null> {
   try {
+    const memEntry = memoryCache.get(key);
+    if (memEntry && isCacheEntryUsable(key, memEntry.data)) {
+      return memEntry.data as T;
+    }
+
     const useFS = await AsyncStorage.getItem(`${key}_fs`);
     if (useFS === '1') {
       const fileUri = getFileUri(key);
@@ -142,7 +187,15 @@ export async function getCacheData<T>(key: string): Promise<T | null> {
 
       try {
         const content = await FileSystem.readAsStringAsync(fileUri);
-        return JSON.parse(content);
+        const parsed = JSON.parse(content);
+        if (!isCacheEntryUsable(key, parsed)) {
+          try { await FileSystem.deleteAsync(fileUri, { idempotent: true }); } catch {}
+          await AsyncStorage.removeItem(`${key}_fs`);
+          await AsyncStorage.removeItem(`${key}_fs_size`);
+          await AsyncStorage.removeItem(`${key}_timestamp`);
+          return null;
+        }
+        return parsed;
       } catch (err: any) {
         // treat common "file not found" / ENOENT cases without polluting logs
         const msg = String(err?.message || err);
@@ -167,7 +220,8 @@ export async function getCacheData<T>(key: string): Promise<T | null> {
       }
     } else {
       const cache = await AsyncStorage.getItem(key);
-      return cache ? JSON.parse(cache) : null;
+      const parsed = cache ? JSON.parse(cache) : null;
+      return isCacheEntryUsable(key, parsed) ? parsed : null;
     }
   } catch (error) {
     console.error(`Failed to get cached data for key ${key}:`, error);
@@ -178,6 +232,7 @@ export async function getCacheData<T>(key: string): Promise<T | null> {
 export async function clearCache(key?: string): Promise<void> {
   try {
     if (key) {
+      memoryCache.delete(key);
       await AsyncStorage.removeItem(key);
       await AsyncStorage.removeItem(`${key}_timestamp`);
       await AsyncStorage.removeItem(`${key}_fs_size`);
@@ -188,17 +243,7 @@ export async function clearCache(key?: string): Promise<void> {
         await AsyncStorage.removeItem(`${key}_fs`);
       }
     } else {
-      await AsyncStorage.clear();
-      // Opcional: limpar todos arquivos do FileSystem se necessário
-      const dir = FileSystem.documentDirectory;
-      if (dir) {
-        const files = await FileSystem.readDirectoryAsync(dir);
-        for (const file of files) {
-          if (file.endsWith('.json')) {
-            await FileSystem.deleteAsync(dir + file, { idempotent: true });
-          }
-        }
-      }
+      await clearAllCache();
     }
   } catch (error) {
     console.error('Failed to clear cache:', error);
@@ -207,16 +252,30 @@ export async function clearCache(key?: string): Promise<void> {
 
 export async function clearAllCache(): Promise<void> {
   try {
-    // Clean AsyncStorage
-    await AsyncStorage.clear();
+    memoryCache.clear();
+    // Clean only cache keys in AsyncStorage, preserving user favorites and settings
+    const allKeys = await AsyncStorage.getAllKeys();
+    const keysToRemove = allKeys.filter(k => {
+      if (PROTECTED_STORAGE_KEYS.has(k)) return false;
+      for (const protectedKey of PROTECTED_STORAGE_KEYS) {
+        if (k.startsWith(`${protectedKey}_`)) return false;
+      }
+      return true;
+    });
+    if (keysToRemove.length > 0) {
+      await AsyncStorage.multiRemove(keysToRemove);
+    }
 
-    // Clean all cache files from the FileSystem
+    // Clean all cache files from the FileSystem (excluding any protected files)
     const dir = FileSystem.documentDirectory;
     if (dir) {
       const files = await FileSystem.readDirectoryAsync(dir);
       for (const file of files) {
         if (file.endsWith('.json')) {
-          await FileSystem.deleteAsync(dir + file, { idempotent: true });
+          const baseKey = file.slice(0, -5);
+          if (!PROTECTED_STORAGE_KEYS.has(baseKey)) {
+            await FileSystem.deleteAsync(dir + file, { idempotent: true });
+          }
         }
       }
     }
@@ -237,11 +296,90 @@ export async function isCacheValid(key: string, ttl: number = THREE_DAYS_MS): Pr
   }
 }
 
+export async function getCacheStats() {
+  try {
+    const keys = await AsyncStorage.getAllKeys();
+    const cacheKeys = keys.filter(key => !key.endsWith('_timestamp') && !key.endsWith('_fs') && !key.endsWith('_fs_size'));
+
+    let asyncStorageBytes = 0;
+    for (const key of cacheKeys) {
+      const value = await AsyncStorage.getItem(key);
+      if (typeof value === 'string') {
+        asyncStorageBytes += value.length;
+      }
+    }
+
+    let fileCount = 0;
+    let fileBytes = 0;
+    const dir = FileSystem.documentDirectory;
+    if (dir) {
+      const files = await FileSystem.readDirectoryAsync(dir);
+      for (const file of files) {
+        if (!file.endsWith('.json')) continue;
+        fileCount += 1;
+        try {
+          const info = await FileSystem.getInfoAsync(dir + file);
+          if (info.exists && typeof info.size === 'number') {
+            fileBytes += info.size;
+          }
+        } catch (err) {
+          console.warn('Failed to read cache file info:', err);
+        }
+      }
+    }
+
+    return {
+      keys: cacheKeys,
+      keyCount: cacheKeys.length,
+      asyncStorageBytes,
+      fileCount,
+      fileBytes,
+      lastUpdated: Date.now(),
+    };
+  } catch (error) {
+    console.error('Failed to compute cache stats:', error);
+    return {
+      keys: [] as string[],
+      keyCount: 0,
+      asyncStorageBytes: 0,
+      fileCount: 0,
+      fileBytes: 0,
+      lastUpdated: Date.now(),
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function forceRefreshMainCaches(): Promise<void> {
+  try {
+    const entries = Object.values(CACHE_KEYS).filter(
+      key => !PROTECTED_STORAGE_KEYS.has(key)
+    );
+    await Promise.all(entries.map(key => clearCache(key)));
+  } catch (error) {
+    console.error('Failed to refresh caches:', error);
+    throw error;
+  }
+}
+
+export const CacheManager = {
+  getCacheStats,
+  clearAllCache,
+  clearCache,
+  forceRefreshMainCaches,
+};
+
 // Cache keys constants
 export const CACHE_KEYS = {
   LINES: 'bus_lines',
+  LINES_DADOS: 'bus_lines_dados',
   FROTA: 'frota_operadora',
   STOPS: 'bus_stops',
+  STOP_DADOS: 'stop_dados',
   BUSES: 'bus_positions',
   BUS_HORARIO: 'bus_hours',
+  BUS_HORARIO_DADOS: 'bus_hours_dados',
+  NUMEROS_BUS_DADOS: 'numeros_bus_dados',
+  FAVORITES_BUSES: 'favorites_buses',
+  FAVORITES_STOPS: 'favorites_stops',
 } as const;

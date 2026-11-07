@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { apiService } from '../services/api';
+import { busService, frotaService } from '../services/api';
 import { BusLine, CacheOptions, EnhancedBus, FrotaOperadora, MapBounds } from '../types';
 import { CacheManager } from '../utils/cacheManager';
 
@@ -66,7 +66,7 @@ export const useCachedLines = (options?: CacheOptions) => {
     try {
       setIsLoading(true);
       setError(null);
-      const data = await apiService.getLinesCached(options);
+      const data = await busService.getLinesCached(options);
       setLines(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch lines');
@@ -96,7 +96,7 @@ export const useCachedFrota = (options?: CacheOptions) => {
     try {
       setIsLoading(true);
       setError(null);
-      const data = await apiService.getFrotaCached(options);
+      const data = await frotaService.getFrotaCached(options);
       setFrota(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch frota');
@@ -127,7 +127,7 @@ export const useEnhancedBuses = (bounds?: MapBounds) => {
     try {
       setIsLoading(true);
       setError(null);
-      const data = await apiService.getEnhancedBuses(bounds);
+      const data = await busService.getEnhancedBuses(bounds);
       setBuses(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch enhanced buses');
