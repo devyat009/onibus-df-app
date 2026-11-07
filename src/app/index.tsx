@@ -327,6 +327,7 @@ export default function Index() {
       setIsFetchingBuses(true);
       try {
         const result = await busService.getEnhancedBuses(bounds);
+        console.log(`[DEV] Fetched ${result.length} buses from API`);
         const filteredBuses = showOnlyActiveBuses
           ? result.filter(bus => bus.linha && bus.linha.trim())
           : result;
@@ -375,7 +376,11 @@ export default function Index() {
         }
         currentInterval = intervalMs; // reset on success
       } catch (error) {
-        console.warn('Error fetching buses:', error);
+        console.error('[IndexScreen] Error fetching buses:', {
+          error,
+          errorName: error instanceof Error ? error.name : typeof error,
+          errorMessage: error instanceof Error ? error.message : String(error),
+        });
         currentInterval = Math.min(currentInterval + 1000, 30000);
       } finally {
         setIsFetchingBuses(false);

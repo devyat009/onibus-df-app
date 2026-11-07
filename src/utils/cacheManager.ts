@@ -6,6 +6,8 @@ const FILESYSTEM_THRESHOLD = 100 * 1024; // 100KB - suggestion to original for d
 const MAX_CACHE_FILE_SIZE = 40 * 1024 * 1024; // 40MB maximum for writing/reading at once
 const MAX_READ_FILE_SIZE = 45 * 1024 * 1024; // 45MB - if the file is larger than this, don't try to read
 
+const memoryCache = new Map<string, { data: any; timestamp: number }>();
+
 export interface CacheOptions {
   ttl?: number; // Time to live in milliseconds
   forceRefresh?: boolean;
@@ -15,13 +17,20 @@ function getFileUri(key: string) {
   return FileSystem.documentDirectory + key + '.json';
 }
 
-async function shouldUseFileSystem(data: any): Promise<boolean> {
-  try {
-    const str = typeof data === 'string' ? data : JSON.stringify(data);
-    return str.length > FILESYSTEM_THRESHOLD && str.length <= MAX_CACHE_FILE_SIZE;
-  } catch {
-    return false;
+function isCacheEntryUsable(key: string, cache: any): boolean {
+  if (cache === null || cache === undefined) return false;
+  if (Array.isArray(cache)) {
+    if (cache.length === 0) return false;
+    // Invalidate legacy bus_lines cache entries that were saved without 'sentido' and 'nome'
+    if (key === 'bus_lines') {
+      const hasValidSchema = cache.some((item: any) => Boolean(item?.sentido || item?.nome));
+      if (!hasValidSchema) {
+        console.warn('[CacheManager] Invalidating stale bus_lines cache with missing sentido/nome');
+        return false;
+      }
+    }
   }
+  return true;
 }
 
 export async function getCachedOrFetch<T>(
@@ -30,30 +39,41 @@ export async function getCachedOrFetch<T>(
   options: CacheOptions = {}
 ): Promise<T> {
   const { ttl = THREE_DAYS_MS, forceRefresh = false } = options;
+  const now = Date.now();
 
   if (forceRefresh) {
     const data = await fetcher();
+    memoryCache.set(key, { data, timestamp: now });
     await setCacheData(key, data);
     return data;
   }
 
+  const memEntry = memoryCache.get(key);
+  if (memEntry && now - memEntry.timestamp < ttl && isCacheEntryUsable(key, memEntry.data)) {
+    return memEntry.data as T;
+  }
+
   const timestamp = await AsyncStorage.getItem(`${key}_timestamp`);
-  const now = Date.now();
 
   if (timestamp && now - Number(timestamp) < ttl) {
     const cache = await getCacheData<T>(key);
-    if (cache !== null) return cache;
+    if (isCacheEntryUsable(key, cache)) {
+      memoryCache.set(key, { data: cache, timestamp: Number(timestamp) });
+      return cache as T;
+    }
   }
 
   const data = await fetcher();
+  memoryCache.set(key, { data, timestamp: Date.now() });
   await setCacheData(key, data);
   return data;
 }
 
 export async function setCacheData<T>(key: string, data: T): Promise<void> {
   try {
+    memoryCache.set(key, { data, timestamp: Date.now() });
     const str = typeof data === 'string' ? data : JSON.stringify(data);
-    const useFS = await shouldUseFileSystem(data);
+    const useFS = str.length > FILESYSTEM_THRESHOLD && str.length <= MAX_CACHE_FILE_SIZE;
 
     // If stringified data is too large, skip caching to avoid OOM.
     if (str.length > MAX_CACHE_FILE_SIZE) {
@@ -90,6 +110,11 @@ export async function setCacheData<T>(key: string, data: T): Promise<void> {
 
 export async function getCacheData<T>(key: string): Promise<T | null> {
   try {
+    const memEntry = memoryCache.get(key);
+    if (memEntry && isCacheEntryUsable(key, memEntry.data)) {
+      return memEntry.data as T;
+    }
+
     const useFS = await AsyncStorage.getItem(`${key}_fs`);
     if (useFS === '1') {
       const fileUri = getFileUri(key);
@@ -142,7 +167,15 @@ export async function getCacheData<T>(key: string): Promise<T | null> {
 
       try {
         const content = await FileSystem.readAsStringAsync(fileUri);
-        return JSON.parse(content);
+        const parsed = JSON.parse(content);
+        if (!isCacheEntryUsable(key, parsed)) {
+          try { await FileSystem.deleteAsync(fileUri, { idempotent: true }); } catch {}
+          await AsyncStorage.removeItem(`${key}_fs`);
+          await AsyncStorage.removeItem(`${key}_fs_size`);
+          await AsyncStorage.removeItem(`${key}_timestamp`);
+          return null;
+        }
+        return parsed;
       } catch (err: any) {
         // treat common "file not found" / ENOENT cases without polluting logs
         const msg = String(err?.message || err);
@@ -167,7 +200,8 @@ export async function getCacheData<T>(key: string): Promise<T | null> {
       }
     } else {
       const cache = await AsyncStorage.getItem(key);
-      return cache ? JSON.parse(cache) : null;
+      const parsed = cache ? JSON.parse(cache) : null;
+      return isCacheEntryUsable(key, parsed) ? parsed : null;
     }
   } catch (error) {
     console.error(`Failed to get cached data for key ${key}:`, error);
@@ -178,6 +212,7 @@ export async function getCacheData<T>(key: string): Promise<T | null> {
 export async function clearCache(key?: string): Promise<void> {
   try {
     if (key) {
+      memoryCache.delete(key);
       await AsyncStorage.removeItem(key);
       await AsyncStorage.removeItem(`${key}_timestamp`);
       await AsyncStorage.removeItem(`${key}_fs_size`);
@@ -188,6 +223,7 @@ export async function clearCache(key?: string): Promise<void> {
         await AsyncStorage.removeItem(`${key}_fs`);
       }
     } else {
+      memoryCache.clear();
       await AsyncStorage.clear();
       // Opcional: limpar todos arquivos do FileSystem se necessário
       const dir = FileSystem.documentDirectory;
@@ -207,6 +243,7 @@ export async function clearCache(key?: string): Promise<void> {
 
 export async function clearAllCache(): Promise<void> {
   try {
+    memoryCache.clear();
     // Clean AsyncStorage
     await AsyncStorage.clear();
 

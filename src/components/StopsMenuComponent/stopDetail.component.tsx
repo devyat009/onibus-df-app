@@ -74,11 +74,6 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
       try {
         setLoading(true);
         setError(null);
-        try {
-          await busService.refreshGlobalTelemetry();
-        } catch (telemetryError) {
-          console.warn('[StopDetail] Telemetry refresh failed on load:', telemetryError);
-        }
 
         const data = await stopService.getStopScheduleV2(stop);
         // console.warn('[STOPDETAIL2] Loaded stop schedule V2:', data.lines[0]);
@@ -114,11 +109,6 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
         }
 
         const lines = scheduleData.lines.map(item => item.line);
-        try {
-          await busService.refreshGlobalTelemetry();
-        } catch (telemetryError) {
-          console.warn('[StopDetail] Telemetry refresh failed before realtime fetch:', telemetryError);
-        }
         const realtime = await busService.getRealtimeArrivalsForStop(stop, lines, {
           radiusMeters: 10000,
           maxPerLine: 3,

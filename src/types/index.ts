@@ -254,7 +254,8 @@ export interface StopApiProperties {
 }
 
 export interface Stop2025ApiProperties {
-  id: string;
+  id_ponto_parada_v2025: number;
+  id_ponto_parada_staging_two: number;
   cod_parada_v2025: number;
   latitude: number;
   longitude: number;
@@ -272,6 +273,13 @@ export interface LineApiProperties {
   tarifa?: number;
   situacao?: string;
   situacao_da_linha?: boolean;
+  id_linha?: number;
+  cd_linha?: string;
+  lin_sentido?: string;
+  tx_linha?: string;
+  vl_tarifa?: number;
+  fx_tarifaria?: string;
+  lin_extensao?: number;
 }
 
 export interface LineV2ApiProperties {

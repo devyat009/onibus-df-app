@@ -1,10 +1,13 @@
 import { ApiResponse, CacheOptions, DadosNumerosVeiculos, FrotaApiProperties, FrotaOperadora } from '../types';
 import { CACHE_KEYS, getCachedOrFetch } from '../utils/cacheManager';
 import appConfig from '../utils/config';
-import { ApiService } from './api';
+import type { ApiService } from './api';
 
 export class FrotaService {
-  private baseUrl = appConfig.api.baseUrl;
+  private get baseUrl(): string {
+    return appConfig.api.baseUrl;
+  }
+
   constructor(
     private apiService: ApiService
   ) {
@@ -22,6 +25,10 @@ export class FrotaService {
       undefined,
       true // Use geoserver for frota
     );
+
+    if (!response || !Array.isArray(response.features)) {
+      return [];
+    }
 
     return response.features
       .map(feature => this.transformFrotaFromApi(feature))
@@ -53,6 +60,10 @@ export class FrotaService {
       throw new Error(`Failed to fetch numeros veiculos: ${response.statusText}`);
     }
 
+    if (!response.headers.get('content-type')?.includes('application/json')) {
+      throw new Error(`Unexpected content type for Numeros Veiculos: ${response.headers.get('content-type')}`);
+    }
+
     const data = await response.json();
 
     // API returns array directly, not wrapped in features
@@ -64,15 +75,15 @@ export class FrotaService {
 
     return numerosBuses;
 
-  };
+  }
 
   async getNumerosVeiculosCached(options?: CacheOptions): Promise<DadosNumerosVeiculos[]> {
-      return getCachedOrFetch(
-        CACHE_KEYS.NUMEROS_BUS_DADOS,
-        () => this.getNumerosVeiculos(),
-        options
-      );
-    }
+    return getCachedOrFetch(
+      CACHE_KEYS.NUMEROS_BUS_DADOS,
+      () => this.getNumerosVeiculos(),
+      options
+    );
+  }
 
 
   // ## Helpers
@@ -96,16 +107,16 @@ export class FrotaService {
   }
 
   private transformNumerosVeiculosFromApi(feature: any): DadosNumerosVeiculos | null {
-      if (!feature) return null;
-      return {
-        numero: feature.numero,
-        descricao: feature.descricao,
-        sentido: feature.sentido,
-        tarifa: feature.tarifa,
-        operadoras: feature.operadoras?.map((op: any) => ({
-          id_operadora: op.id_operadora,
-          nome: op.nome,
-        })) ?? [],
-      };
+    if (!feature) return null;
+    return {
+      numero: feature.numero,
+      descricao: feature.descricao,
+      sentido: feature.sentido,
+      tarifa: feature.tarifa,
+      operadoras: feature.operadoras?.map((op: any) => ({
+        id_operadora: op.id_operadora,
+        nome: op.nome,
+      })) ?? [],
+    };
   }
 }

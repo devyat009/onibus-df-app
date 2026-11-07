@@ -4,7 +4,8 @@ import { CACHE_KEYS, CacheOptions, getCachedOrFetch } from "../utils/cacheManage
 import appConfig from "../utils/config";
 import { createBoundsFromRadius, haversineDistance, utmToLatLngZone23S } from "../utils/geoUtils";
 import { buildLineKey, matchesLineNumber, normalizeLineNumber, normalizeSentido, stripLeadingZeros } from "../utils/lineUtils";
-import { ApiError, ApiService } from "./api";
+import { ApiError } from "./apiError";
+import type { ApiService } from "./api";
 import { FrotaService } from "./frotaService";
 
 type TelemetrySample = {
@@ -19,7 +20,9 @@ const TELEMETRY_MAX_AGE_MS = 6 * 60 * 1000;
 
 export class BusService {
 
-	private baseUrl: string;
+	private get baseUrl(): string {
+		return appConfig.api.baseUrl;
+	}
 	private telemetryHistory = new Map<string, TelemetrySample[]>();
 	private telemetryInterval: ReturnType<typeof setInterval> | null = null;
 	private telemetryFetchInFlight = false;
@@ -29,7 +32,6 @@ export class BusService {
 		private apiService: ApiService,
 		private frotaService: FrotaService
 	) {
-		this.baseUrl = appConfig.api.baseUrl;
 	}
 
 	// #region Telemetry
@@ -209,14 +211,16 @@ export class BusService {
 
 		let allBuses: Bus[] = [];
 		let shouldUseFallback = false;
-
+    //console.log('debug - getBuses', { bounds, filterToUse, options });
 		try {
 			const geoserverEndpoint = appConfig.api.endpoints.geoOnibusPosicao || appConfig.api.endpoints.dadosOnibusPosicao;
+      console.log("geoserverEndpoint", geoserverEndpoint);
 			const response = await this.apiService.makeRequest<BusApiProperties>(
 				geoserverEndpoint,
 				bounds,
 				true // Prefer geoserver data when available
 			);
+      // console.log('[ DEV BUSES ]:', response);
 
 			// checks
 			if (!response) {
@@ -353,16 +357,21 @@ export class BusService {
 	async getEnhancedBuses(bounds?: MapBounds, timeFilter?: '30min' | '24h'): Promise<EnhancedBus[]> {
 		// Use filter from store if not provided as parameter
 		const filterToUse = timeFilter || useAppStore.getState().busTimeFilter;
-
 			// Get buses, frota and numeros data in parallel
 			const [buses, frota, numeros] = await Promise.all([
 				this.getBuses(bounds, filterToUse),
-				this.frotaService.getFrotaCached(), // Use cached frota data
-				this.frotaService.getNumerosVeiculosCached(),
+				this.frotaService.getFrotaCached().catch(err => {
+					console.warn('[BusService] Failed to load frota in getEnhancedBuses, continuing without operator enhancement:', err);
+					return [] as FrotaOperadora[];
+				}),
+				this.frotaService.getNumerosVeiculosCached().catch(err => {
+					console.warn('[BusService] Failed to load numeros in getEnhancedBuses, continuing without numeroDados:', err);
+					return [] as DadosNumerosVeiculos[];
+				}),
 			]);
 
-		// console.log(`Enhanced buses - got ${buses.length} buses from getBuses`);
-		// console.log(`Enhanced buses - got ${frota.length} frota entries`);
+		console.warn(`[DEV] Enhanced buses - got ${buses.length} buses from getBuses`);
+		console.warn(`[DEV] Enhanced buses - got ${frota.length} frota entries`);
 
 		// Create a map of numeroVeiculo -> FrotaOperadora for fast lookup
 		const frotaMap = new Map<string, FrotaOperadora>();
@@ -956,7 +965,7 @@ export class BusService {
 			return null;
 		}
 
-		const linha = properties.linha || '';
+		const linha = properties.linha || properties.cd_linha || '';
 
 		if (!linha) {
 			return null;
@@ -975,17 +984,17 @@ export class BusService {
 			const looksLikeUtm = x > 100000 && x < 400000 && y > 8_000_000 && y < 9_200_000;
 			if (looksLikeUtm) {
 				const { lat, lng } = utmToLatLngZone23S(x, y);
-				return [lng, lat];
+				return [Math.round(lng * 1e5) / 1e5, Math.round(lat * 1e5) / 1e5];
 			}
-			return [x, y];
+			return [Math.round(x * 1e5) / 1e5, Math.round(y * 1e5) / 1e5];
 		});
 
 		return {
-			id: properties.id,
+			id: properties.id ?? properties.id_linha ?? 0,
 			linha,
-      nome: properties.nome || '',
-      sentido: properties.sentido || '',
-      tarifa: properties.tarifa || 0,
+      nome: properties.nome || properties.tx_linha || '',
+      sentido: properties.sentido || properties.lin_sentido || '',
+      tarifa: properties.tarifa ?? properties.vl_tarifa ?? 0,
 			coordinates,
 			tipo: geometry.type as 'LineString' | 'MultiLineString',
 		};

@@ -1,33 +1,28 @@
 import {
   ApiResponse,
-  ErrorCode,
   MapBounds
 } from '../types';
-//import { CACHE_KEYS, CacheOptions, getCachedOrFetch } from '../utils/asyncStorage';
 import appConfig from '../utils/config';
+import { ApiError } from './apiError';
 import { BusService } from './busService';
 import { FrotaService } from './frotaService';
 import { StopService } from './stopService';
 
-class ApiError extends Error {
-  code: ErrorCode;
-  details?: any;
-
-  constructor(code: ErrorCode, message: string, details?: any) {
-    super(message);
-    this.name = 'ApiError';
-    this.code = code;
-    this.details = details;
-  }
-}
+const DEFAULT_DF_BOUNDS: MapBounds = {
+  north: -15.43,
+  south: -16.06,
+  east: -47.33,
+  west: -48.12,
+};
 
 export class ApiService {
-  private baseUrl: string;
+  private get baseUrl(): string {
+    return appConfig.api.baseUrl;
+  }
 
   constructor(
     private frotaService: FrotaService,
   ) {
-    this.baseUrl = appConfig.api.baseUrl;
   }
 
   async makeRequest<T>(endpoint: string, bounds?: MapBounds, useGeoserver: boolean = false): Promise<ApiResponse<T>> {
@@ -43,36 +38,28 @@ export class ApiService {
         url = endpoint.startsWith('/') ? `${this.baseUrl}${endpoint}` : `${this.baseUrl}?${endpoint}`;
       }
 
-      if (bounds && useGeoserver) {
+      const effectiveBounds =
+        bounds || (useGeoserver && endpoint === appConfig.api.endpoints.geoOnibusPosicao ? DEFAULT_DF_BOUNDS : undefined);
+
+      if (effectiveBounds && useGeoserver) {
         // Normalize bounds to ensure correct min/max values with high precision
-        const minX = Math.min(bounds.west, bounds.east).toFixed(8);
-        const maxX = Math.max(bounds.west, bounds.east).toFixed(8);
-        const minY = Math.min(bounds.south, bounds.north).toFixed(8);
-        const maxY = Math.max(bounds.south, bounds.north).toFixed(8);
+        const minX = Math.min(effectiveBounds.west, effectiveBounds.east).toFixed(8);
+        const maxX = Math.max(effectiveBounds.west, effectiveBounds.east).toFixed(8);
+        const minY = Math.min(effectiveBounds.south, effectiveBounds.north).toFixed(8);
+        const maxY = Math.max(effectiveBounds.south, effectiveBounds.north).toFixed(8);
 
-
-        if (endpoint === appConfig.api.endpoints.geoParadas2025 || endpoint === appConfig.api.endpoints.geoOnibusPosicao) {
-          const bbox = `${minX},${minY},${maxX},${maxY},EPSG:4326`;
-          url += `&bbox=${bbox}&srsName=EPSG:4326`;
-        }
-        // else if (endpoint === appConfig.api.endpoints.geoOnibusPosicao) {
-        //   // CQL_FILTER
-        //   const polygon = `POLYGON((${minX} ${minY},${maxX} ${minY},${maxX} ${maxY},${minX} ${maxY},${minX} ${minY}))`;
-        //   url += `&CQL_FILTER=INTERSECTS(geom_point,${encodeURIComponent(polygon)})`;
-        // }
-        else {
-          // Default bbox parameter for other geoserver endpoints
-          const bbox = `${minX},${minY},${maxX},${maxY},EPSG:4326`;
-          url += `&bbox=${bbox}&srsName=EPSG:4326`;
-        }
+        const bbox = `${minX},${minY},${maxX},${maxY},EPSG:4326`;
+        url += `&bbox=${bbox}&srsName=EPSG:4326`;
       }
 
+      console.log('[ApiService] Requesting URL:', url);
       const response = await fetch(url, {
         headers: {
           'Accept': 'application/json',
         },
         cache: 'no-store',
       });
+
       const contentType = response.headers.get('content-type') || '';
 
       if (!response.ok) {
@@ -111,9 +98,23 @@ export class ApiService {
       const data = await response.json();
       return data as ApiResponse<T>;
     } catch (error: any) {
+      const context = {
+        endpoint,
+        bounds,
+        useGeoserver,
+        message: error?.message,
+        name: error?.name,
+        code: error?.code,
+        details: error?.details,
+        stack: error?.stack,
+        type: typeof error,
+      };
+
       if (error instanceof ApiError) {
+        console.error('[ApiService] ApiError caught in makeRequest:', context);
         throw error;
       }
+      console.error('[ApiService] Unexpected error in makeRequest:', context);
       throw new ApiError('NETWORK_ERROR', `Failed to fetch data: ${error?.message || error}`, {
         originalError: error,
         stack: error?.stack,
@@ -142,4 +143,3 @@ export const busService = busServiceInstance;
 export const stopService = stopServiceInstance;
 export const frotaService = frotaServiceInstance;
 export default apiService;
-

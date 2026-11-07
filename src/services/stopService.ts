@@ -2,25 +2,28 @@ import { ApiResponse, BusHorario, BusHorarioV2, BusLine, BusLineV2, BusStop, Bus
 import { CACHE_KEYS, CacheOptions, getCachedOrFetch } from "../utils/cacheManager";
 import appConfig from "../utils/config";
 import { getLineBounds, pointToLineDistance } from "../utils/geoUtils";
-import { ApiError, ApiService } from "./api";
+import { ApiError } from "./apiError";
+import type { ApiService } from "./api";
 import { BusService } from "./busService";
 
 export class StopService {
-  private baseUrl: string;
+  private get baseUrl(): string {
+    return appConfig.api.baseUrl;
+  }
+
   constructor(
     private apiService: ApiService,
     private busService: BusService,
   ) {
-    this.baseUrl = appConfig.api.baseUrl;
   }
 
   // #region Requests Stops
 
   /**
-   * Fetches bus stops from the API.
-   * @param bounds - Optional geographical bounds to filter stops.
-   * @returns An array of BusStop objects.
-   */
+    * Fetches bus stops from the API.
+    * @param bounds - Optional geographical bounds to filter stops.
+    * @returns An array of BusStop objects.
+    */
   async getStops(bounds?: MapBounds): Promise<BusStop[]> {
     let endpoint = appConfig.api.endpoints.geoParadas2025;
 
@@ -138,50 +141,6 @@ export class StopService {
     };
   }
 
-  // private transformStopFromApi(feature: ApiResponse<StopApiProperties>['features'][0]): BusStop | null {
-  //   const { properties, geometry } = feature;
-
-  //   if (geometry.type !== 'Point' || !Array.isArray(geometry.coordinates)) {
-  //     return null;
-  //   }
-  //   let [rawX, rawY] = geometry.coordinates as [number, number];
-  //   let latitude: number;
-  //   let longitude: number;
-
-  //   // Detect UTM (EPSG:31983 – SIRGAS 2000 / UTM zone 23S)
-  //   const looksLikeUtm = rawX > 100000 && rawX < 400000 && rawY > 8_000_000 && rawY < 9_200_000; // heuristic
-  //   if (looksLikeUtm) {
-  //     const { lat, lng } = this.utmToLatLngZone23S(rawX, rawY);
-  //     latitude = lat;
-  //     longitude = lng;
-  //   } else {
-  //     // Already lon/lat
-  //     longitude = rawX;
-  //     latitude = rawY;
-  //   }
-
-  //   // Validate plausible region (Central Brazil / DF)
-  //   if (isNaN(latitude) || isNaN(longitude) || latitude < -35 || latitude > 10 || longitude < -75 || longitude > -25) {
-  //     // Fallback: skip invalid
-  //     return null;
-  //   }
-
-  //   const codigo = properties.parada || properties.cd_parada || properties.codigo || properties.id || '';
-  //   const nome = properties.descricao || properties.ds_ponto || properties.nm_parada || properties.nome || properties.ds_descricao || 'Parada de ônibus';
-  //   const situacao = properties.situacao || 'ATIVA'; // Default to active if not specified
-
-  //   return {
-  //     id: codigo || `${latitude}-${longitude}`,
-  //     codigo,
-  //     nome,
-  //     descricao: nome,
-  //     latitude,
-  //     longitude,
-  //     situacao,
-  //   };
-  // }
-
-
   // #endregion
 
   // #region Helpers Stops
@@ -248,7 +207,6 @@ export class StopService {
 
     // simple array, not GeoJSON
     const data: any[] = await response.json();
-    // console.log('[HORARIOV2] Raw API response:', { itemCount: data.length, firstItem: data[0] });
     // Map to BusHorarioV2
     return data.map(item => ({
       numero_linha: item.numero,
@@ -258,91 +216,27 @@ export class StopService {
     }));
   }
 
-  // /**
-  // * Get the bus schedules for a specific stop, with caching from GeoServer
-  // * @param stop BusStop object
-  // * @returns Array of BusHorario
-  // */
-  // async getStopSchedule(stop: BusStop): Promise<StopSchedule> {
-  //   // console.log(`Getting schedule for stop: ${stop.codigo} - ${stop.nome}`);
-
-  //   const [lines, horarios] = await Promise.all([
-  //     this.busService.getLinesCached(),
-  //     this.getHorario()
-  //   ]);
-
-  //   // console.log(`Loaded ${lines.length} lines and ${horarios.length} schedules`);
-
-  //   let relevantLines: BusLine[] = [];
-
-
-  //   // If still no matches, try proximity algorithm with multiple tolerances
-  //   if (relevantLines.length === 0) {
-  //     // console.log('Strategy 2 failed, trying strategy 3: Proximity algorithm...');
-  //     const tolerances = [100, 300, 500, 1000, 2000]; // Try increasing distances
-
-  //     for (const tolerance of tolerances) {
-  //       console.log(`Trying proximity with ${tolerance}m tolerance...`);
-  //       relevantLines = lines.filter(line => {
-  //         const passesThrough = this.doesLinePassThroughStop(line, stop, tolerance);
-  //         if (passesThrough) {
-  //           console.log(`Strategy 3: Line ${line.codigo} passes through stop ${stop.codigo} with ${tolerance}m tolerance`);
-  //         }
-  //         return passesThrough;
-  //       });
-
-  //       if (relevantLines.length > 0) {
-  //         console.log(`Found ${relevantLines.length} lines with ${tolerance}m tolerance`);
-  //         break;
-  //       }
-  //     }
-  //   }
-
-  //   // console.log(`Found ${relevantLines.length} lines that might serve stop ${stop.codigo}`);
-
-  //   // Group schedules by line
-  //   const linesWithSchedules = relevantLines.map(line => {
-  //     const lineSchedules = horarios.filter(horario =>
-  //       horario.cd_linha === line.linha
-  //     );
-
-  //     console.log(`Line ${line.linha} has ${lineSchedules.length} schedules`);
-
-  //     return {
-  //       line,
-  //       schedules: lineSchedules.sort((a, b) => a.hr_prevista.localeCompare(b.hr_prevista))
-  //     };
-  //   }).filter(item => item.schedules.length > 0);
-
-  //   // console.log(`Final result: ${linesWithSchedules.length} lines with schedules`);
-
-  //   return {
-  //     stop,
-  //     lines: linesWithSchedules
-  //   };
-  // }
-
   /**
    * Get the schedule for a specific bus stop
    * @param stop BusStop object
-   * @returns 
+   * @returns StopScheduleV2
    */
   async getStopScheduleV2(stop: BusStop): Promise<StopScheduleV2> {
-    // console.log(`[GETSTOPSCHEDULEV2] Getting V2 schedule for stop: ${stop.codigo} - ${stop.nome}`);
-    const lines = await this.busService.getLines();
-    const horarios = await this.getHorarioV2Cached();
-    const paradas = await this.getStopDadosCached();
-
-    // console.log(`[GETSTOPSCHEDULEV2] Loaded ${lines.length} lines and ${horarios.length} schedules`);
-    // console.log(`[GETSTOPSCHEDULEV2] Finding lines that serve stop ${stop.codigo}`);
+    const [lines, horarios, paradas] = await Promise.all([
+      this.busService.getLinesCached().catch(err => {
+        console.warn('[StopService] Failed to load lines in getStopScheduleV2, continuing with fallback:', err);
+        return [] as BusLine[];
+      }),
+      this.getHorarioV2Cached(),
+      this.getStopDadosCached(),
+    ]);
 
     // Helper function to map full sentido to abbreviated sentido
     const mapSentidoToAbbreviation = (sentido: string): string => {
-      const upperSentido = sentido.toUpperCase();
-      if (upperSentido === 'IDA') return 'I';
-      if (upperSentido === 'VOLTA') return 'V';
-      if (upperSentido === 'CIRCULAR') return 'C';
-      // Return first letter as fallback
+      const upperSentido = (sentido || '').trim().toUpperCase();
+      if (upperSentido === 'IDA' || upperSentido === 'I') return 'I';
+      if (upperSentido === 'VOLTA' || upperSentido === 'V') return 'V';
+      if (upperSentido === 'CIRCULAR' || upperSentido === 'C') return 'C';
       return upperSentido.charAt(0);
     };
 
@@ -351,8 +245,6 @@ export class StopService {
     if (Array.isArray(paradas)) {
       for (const parada of paradas) {
         if (parada.id === Number(stop.codigo)) {
-          // console.log(`[GETSTOPSCHEDULEV2] Found matching parada for stop ${stop.codigo}:`, parada);
-
           for (const bus of parada.linParadas) {
             // Parse "0.011 - CIRCULAR" -> numero: "0.011", sentido: "CIRCULAR"
             const parts = bus.split(' - ');
@@ -360,31 +252,59 @@ export class StopService {
 
             const numero = parts[0].trim();
             const sentido = parts[1].trim();
+            const upperSentido = sentido.toUpperCase();
 
-            const matchedLine = lines.find(
-              line => line.linha === numero && line.sentido === sentido
+            let matchedLine = lines.find(
+              line => line.linha.trim() === numero && line.sentido.trim().toUpperCase() === upperSentido
             );
 
-            if (matchedLine && !relevantLines.includes(matchedLine)) {
+            // Fallback: if line is in parada.linParadas but missing from GeoServer lines (or missing that direction),
+            // construct a BusLine entry so schedules for this stop are still displayed
+            if (!matchedLine) {
+              const sameNumberLine = lines.find(line => line.linha.trim() === numero);
+              matchedLine = {
+                id: sameNumberLine?.id ?? 0,
+                linha: numero,
+                nome: sameNumberLine?.nome || '',
+                sentido: upperSentido,
+                tarifa: sameNumberLine?.tarifa ?? 0,
+                coordinates: sameNumberLine?.coordinates ?? [],
+                tipo: sameNumberLine?.tipo ?? 'LineString',
+              };
+            }
+
+            if (
+              matchedLine &&
+              !relevantLines.some(
+                l => l.linha.trim() === matchedLine!.linha.trim() && l.sentido.trim().toUpperCase() === matchedLine!.sentido.trim().toUpperCase()
+              )
+            ) {
               relevantLines.push(matchedLine);
             }
           }
         }
       }
     }
-    // console.log(`[GETSTOPSCHEDULEV2] Found ${relevantLines.length} lines that might serve stop ${stop.codigo}`);
+
+    if (relevantLines.length === 0 && lines.length > 0) {
+      const tolerances = [60, 120, 250];
+      for (const tolerance of tolerances) {
+        relevantLines = lines.filter(line => this.doesLinePassThroughStop(line, stop, tolerance));
+        if (relevantLines.length > 0) break;
+      }
+    }
 
     const linesWithSchedules = relevantLines.map(line => {
       // Map the full sentido name to its abbreviation for matching with horarios
       const sentidoAbbrev = mapSentidoToAbbreviation(line.sentido);
 
-      const matchingSchedules = horarios.filter(
+      let matchingSchedules = horarios.filter(
         horario => horario.numero_linha === line.linha && horario.sentido === sentidoAbbrev
       );
 
-      // console.log(`[GETSTOPSCHEDULEV2] Line ${line.numero} (${line.sentido} -> ${sentidoAbbrev}): ${matchingSchedules.length} schedules found`);
-      if (matchingSchedules.length > 0) {
-        // console.log(`[GETSTOPSCHEDULEV2] First schedule sample:`, matchingSchedules[0]);
+      // Fallback if sentido was missing on a proximity-matched line
+      if (matchingSchedules.length === 0 && !sentidoAbbrev) {
+        matchingSchedules = horarios.filter(horario => horario.numero_linha === line.linha);
       }
 
       return {
@@ -392,9 +312,6 @@ export class StopService {
         schedules: matchingSchedules
       };
     }).filter(item => item.schedules.length > 0);
-
-    // console.log(`[GETSTOPSCHEDULEV2] Final result: ${linesWithSchedules.length} lines with schedules`);
-    // console.log(`[GETSTOPSCHEDULEV2] Complete result:`, JSON.stringify(linesWithSchedules, null, 2));
 
     return {
       stop,
@@ -523,7 +440,6 @@ export class StopService {
       stopCoords[1] > lineBounds.maxLat + stopBuffer ||
       stopCoords[0] < lineBounds.minLng - stopBuffer ||
       stopCoords[0] > lineBounds.maxLng + stopBuffer) {
-      // console.log(`Line ${line.codigo} is outside bounds for stop ${stop.codigo}`);
       return false;
     }
 
