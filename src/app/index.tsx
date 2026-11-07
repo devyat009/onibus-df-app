@@ -425,21 +425,6 @@ export default function Index() {
         { backgroundColor: appTheme === "dark" ? "#000" : "#fff" },
       ]}
     >
-      <View
-        style={[
-          styles.header,
-          { backgroundColor: appTheme === "dark" ? "#000" : "#fff", borderBottomColor: appTheme === "dark" ? "#333" : "#ccc", borderBottomWidth: 1, },
-        ]}
-      >
-        <Text
-          style={[
-            styles.title,
-            { color: appTheme === "dark" ? "#fff" : "#333" },
-          ]}
-        >
-          {/**<ÔnibusDF /> */}
-        </Text>
-      </View>
       <Animated.View
         style={[
           styles.mapContainer,
@@ -825,16 +810,6 @@ export default function Index() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  header: {
-    padding: 5,
-    borderBottomWidth: 1,
-  },
-  title: {
-    marginTop: 5,
-    fontSize: 24,
-    fontWeight: 'bold',
-    textAlign: 'center',
   },
   mapContainer: {
     flex: 1,

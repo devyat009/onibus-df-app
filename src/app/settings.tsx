@@ -11,11 +11,23 @@ const Settings = () => {
     <SafeAreaView style={[styles.container, { backgroundColor: appTheme === 'dark' ? '#000' : '#fff' }]}>
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         <View style={styles.content}>
+          <View style={styles.brandHeader}>
+            <Text style={[styles.brandTitle, { color: appTheme === 'dark' ? '#fff' : '#102a43' }]}>
+              Brasília <Text style={{ color: '#007AFF' }}>Mob</Text>
+            </Text>
+          </View>
+
           <Text style={[styles.title, { color: appTheme === 'dark' ? '#fff' : '#000' }]}>Configurações</Text>
           <Text style={[styles.subtitle, { color: appTheme === 'dark' ? '#ccc' : '#666' }]}>Configurações do aplicativo</Text>
           <Text style={{ marginTop: 10 }}></Text>
           <SettingsOptions />
           <DeveloperOptions />
+
+          <View style={styles.footerContainer}>
+            <Text style={[styles.footerText, { color: appTheme === 'dark' ? '#666' : '#999' }]}>
+              Brasília Mob • v1.0.0
+            </Text>
+          </View>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -33,14 +45,32 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 20,
   },
-  title: {
-    marginTop: 25,
-    fontSize: 24,
+  brandHeader: {
+    alignItems: 'center',
+    marginTop: 15,
+    marginBottom: 8,
+  },
+  brandTitle: {
+    fontSize: 22,
     fontWeight: 'bold',
-    marginBottom: 10,
+    letterSpacing: 0.3,
+  },
+  title: {
+    marginTop: 15,
+    fontSize: 22,
+    fontWeight: 'bold',
+    marginBottom: 6,
   },
   subtitle: {
-    fontSize: 16,
+    fontSize: 15,
+  },
+  footerContainer: {
+    alignItems: 'center',
+    marginTop: 32,
+    marginBottom: 20,
+  },
+  footerText: {
+    fontSize: 13,
   },
 });
 

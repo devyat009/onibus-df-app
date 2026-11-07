@@ -1,9 +1,9 @@
 export default ({ config }) => {
-  const isDevelopment = process.env.NODE_ENV !== 'production';
+  const isDevelopment = process.env.NODE_ENV === 'development';
   
   return {
     ...config,
-    name: isDevelopment ? "Onibus DF Developer" : "Onibus DF",
+    name: "Brasília Mob",
     slug: "bus-tracker",
     version: "1.0.0",
     orientation: "portrait",
@@ -38,7 +38,7 @@ export default ({ config }) => {
       [
         "expo-splash-screen",
         {
-          backgroundColor: "#000000ff",
+          backgroundColor: "#ffffff",
           image: "src/assets/images/splash-icon.png",
           imageWidth: 200,
           resizeMode: "contain"

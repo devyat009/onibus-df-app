@@ -1,4 +1,4 @@
-## Ônibus DF (Brasília) — App Mobile
+## Brasília Mob — App Mobile
 
 Este projeto é um aplicativo desenvolvido em React Native (Expo) para visualização em tempo real de ônibus e paradas do Distrito Federal (Brasília, Brasil). O objetivo é fornecer uma interface intuitiva e moderna para acompanhamento do transporte público, utilizando mapas interativos e recursos avançados de filtragem.
 
