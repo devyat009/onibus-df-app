@@ -185,6 +185,8 @@ export interface UserLocation {
   longitude: number;
   accuracy?: number;
   timestamp: number;
+  speed?: number;
+  heading?: number | null;
 }
 
 export interface ApiResponse<T> {

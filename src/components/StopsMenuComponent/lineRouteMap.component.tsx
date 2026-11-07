@@ -1,8 +1,8 @@
 import { busService, stopService } from '@/src/services/api';
 import { useAppStore } from '@/src/store';
-import { BusLine, BusStop, EnhancedBus } from '@/src/types';
-import { haversineDistance2, pointToLineDistance, utmToLatLngZone23S } from '@/src/utils/geoUtils';
-import { matchesLineNumber } from '@/src/utils/lineUtils';
+import { BusHorarioV2, BusLine, BusStop, EnhancedBus } from '@/src/types';
+import { angleDifference, haversineDistance2, parseBusHeading, pointToLineDistance, projectPointOnPolyline, utmToLatLngZone23S } from '@/src/utils/geoUtils';
+import { areSentidosCompatible, formatSentidoLabel, matchesLineNumber, normalizeSentido } from '@/src/utils/lineUtils';
 import { MaterialIcons } from '@expo/vector-icons';
 import MapLibreGL from '@maplibre/maplibre-react-native';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -21,27 +21,28 @@ const { MapView, Camera, ShapeSource, LineLayer, CircleLayer, MarkerView } = Map
 interface LineRouteMapProps {
   line: BusLine;
   currentStop?: BusStop | null;
+  focusedBus?: {
+    prefixo?: string;
+    latitude: number;
+    longitude: number;
+    direcao?: string;
+    velocidade?: number;
+    sentido?: string;
+  } | null;
   onBack: () => void;
 }
-
-const normalizeSentido = (raw?: string): string => {
-  const s = String(raw ?? '').trim().toUpperCase();
-  if (s === '1' || s === 'I' || s === 'IDA') return 'IDA';
-  if (s === '2' || s === 'V' || s === 'VOLTA') return 'VOLTA';
-  if (s === 'C' || s === 'CIRCULAR') return 'CIRCULAR';
-  return s;
-};
 
 const mapStyles = {
   light: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
   dark: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
 };
 
-const LineRouteMap: React.FC<LineRouteMapProps> = ({ line, currentStop = null, onBack }) => {
+const LineRouteMap: React.FC<LineRouteMapProps> = ({ line, currentStop = null, focusedBus = null, onBack }) => {
   const appTheme = useAppStore(state => state.appTheme);
   const mapTheme = useAppStore(state => state.style) as 'light' | 'dark';
   const mapStyleUrl = mapStyles[mapTheme] || mapStyles.light;
   const [resolvedLine, setResolvedLine] = useState<BusLine>(line);
+  const [tempoPercursoMinutes, setTempoPercursoMinutes] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [stops, setStops] = useState<BusStop[]>([]);
   const [buses, setBuses] = useState<EnhancedBus[]>([]);
@@ -72,29 +73,50 @@ const LineRouteMap: React.FC<LineRouteMapProps> = ({ line, currentStop = null, o
 
   // Route geographic bounds for scoped bus fetching
   const routeBoundsRef = useRef<{ north: number; south: number; east: number; west: number } | null>(null);
-  const resolvedCoordsRef = useRef<[number, number][]>((line.coordinates || []) as [number, number][]);
+  const resolvedLineRef = useRef<BusLine>(line);
   // Track temporary missing buses to avoid flicker removals
   const missingCyclesRef = useRef<Record<string, number>>({});
   const LAST_SEEN_MAX_MISSING_CYCLES = 3; // drop bus only after N consecutive misses
   const MOVEMENT_THRESHOLD_METERS = 5; // minimal movement to count as an update
+  const MAX_DISPLAY_BUS_AGE_MS = 15 * 60 * 1000; // 15 minutes max age for route map markers
 
   const { isFavorite: isBusFavorite } = useBusFavorites();
 
   // Load route stops and buses
   useEffect(() => {
+    const filterBusesForActiveLine = (rawBuses: EnhancedBus[], targetLine: BusLine): EnhancedBus[] => {
+      const now = Date.now();
+      return rawBuses.filter(bus => {
+        if (!matchesLineNumber(bus.linha, targetLine.linha)) {
+          return false;
+        }
+        if (!areSentidosCompatible(bus.sentido, targetLine.sentido)) {
+          return false;
+        }
+        const ts = busService.parseBusTimestamp(bus.datalocal, bus.dataregistro, NaN);
+        if (!Number.isFinite(ts) || now - ts > MAX_DISPLAY_BUS_AGE_MS) {
+          return false;
+        }
+        return true;
+      });
+    };
+
     const loadRouteData = async () => {
       try {
         setLoading(true);
 
-        // Get all stops data to find which ones are on this route
-        const [allStopsData, allStops, enhancedBuses, cachedLines] = await Promise.all([
+        // Get all stops data, stops, active buses, cached route geometries, and schedules in parallel
+        const [allStopsData, allStops, enhancedBuses, cachedLines, horariosV2] = await Promise.all([
           stopService.getStopDadosCached(),
           stopService.getStopsCached(),
           busService.getEnhancedBuses(undefined, '30min'),
           !line.coordinates || line.coordinates.length === 0
             ? busService.getLinesCached().catch(() => [] as BusLine[])
             : Promise.resolve([] as BusLine[]),
+          stopService.getHorarioV2Cached().catch(() => [] as BusHorarioV2[]),
         ]);
+
+        busService.recordTelemetrySnapshot(enhancedBuses);
 
         let activeLine = line;
         if ((!activeLine.coordinates || activeLine.coordinates.length === 0) && cachedLines.length > 0) {
@@ -105,27 +127,66 @@ const LineRouteMap: React.FC<LineRouteMapProps> = ({ line, currentStop = null, o
               matchesLineNumber(l.linha, line.linha) ||
               String(l.linha).trim().toUpperCase() === targetNum
           );
-          const matched =
-            candidates.find(
-              l =>
-                targetSentido &&
-                normalizeSentido(l.sentido) === targetSentido &&
-                l.coordinates &&
-                l.coordinates.length > 0
-            ) ||
-            candidates.find(l => l.coordinates && l.coordinates.length > 0) ||
-            candidates[0];
+
+          let matched: BusLine | undefined;
+          if (targetSentido) {
+            // Match exact normalized direction (or CIRCULAR) — never borrow opposite IDA/VOLTA geometry!
+            matched =
+              candidates.find(
+                l =>
+                  normalizeSentido(l.sentido) === targetSentido &&
+                  l.coordinates &&
+                  l.coordinates.length > 0
+              ) ||
+              candidates.find(
+                l =>
+                  normalizeSentido(l.sentido) === 'C' &&
+                  l.coordinates &&
+                  l.coordinates.length > 0
+              );
+          } else if (focusedBus && isFinite(focusedBus.longitude) && isFinite(focusedBus.latitude)) {
+            // Bus had unknown/corrupted sentido (e.g. '06/11/2026'): pick candidate route matching bus position + heading!
+            const fCoord: [number, number] = [focusedBus.longitude, focusedBus.latitude];
+            const fHeading = parseBusHeading(focusedBus.direcao, focusedBus.velocidade ?? 0);
+            let bestCandidateScore = Infinity;
+            for (const cand of candidates) {
+              if (!cand.coordinates || cand.coordinates.length < 2) continue;
+              const proj = projectPointOnPolyline(fCoord, cand.coordinates as [number, number][], fHeading);
+              const hPenalty =
+                fHeading != null
+                  ? angleDifference(fHeading, proj.segmentBearingDeg) * 2
+                  : 0;
+              const score = proj.perpDistanceMeters + hPenalty;
+              if (score < bestCandidateScore) {
+                bestCandidateScore = score;
+                matched = cand;
+              }
+            }
+          } else {
+            matched = candidates.find(l => l.coordinates && l.coordinates.length > 0) || candidates[0];
+          }
+
           if (matched) {
             activeLine = {
               ...matched,
-              sentido: matched.sentido || targetSentido || line.sentido,
+              sentido: matched.sentido || formatSentidoLabel(line.sentido) || line.sentido,
             };
           }
         }
         setResolvedLine(activeLine);
+        resolvedLineRef.current = activeLine;
+
+        // Resolve tempo_percurso for realistic commercial speed estimation
+        const activeNormSentido = normalizeSentido(activeLine.sentido);
+        const matchingHorario = horariosV2.find(
+          h =>
+            matchesLineNumber(h.numero_linha, activeLine.linha) &&
+            (!activeNormSentido || normalizeSentido(h.sentido) === activeNormSentido) &&
+            h.tempo_percurso > 0
+        );
+        setTempoPercursoMinutes(matchingHorario?.tempo_percurso ?? 0);
 
         const routeCoords = (activeLine.coordinates || []) as [number, number][];
-        resolvedCoordsRef.current = routeCoords;
         const targetNumero = String(activeLine.linha).trim().toUpperCase();
         const targetSentido = normalizeSentido(activeLine.sentido);
 
@@ -197,22 +258,8 @@ const LineRouteMap: React.FC<LineRouteMapProps> = ({ line, currentStop = null, o
 
         setStops(routeStops);
 
-        // Initial bus filtering (relaxed: matches or includes line numero substring)
-        let lineBuses = enhancedBuses.filter(bus => matchesLineNumber(bus.linha, activeLine.linha) || bus.linha?.includes(String(activeLine.linha)));
-        if (lineBuses.length === 0 && enhancedBuses.length > 0) {
-          // fallback: any bus within 60m of route polyline (heuristic)
-          lineBuses = enhancedBuses.filter(b => {
-            const busCoord: [number, number] = [b.longitude, b.latitude];
-            let min = Infinity;
-            for (let i = 0; i < routeCoords.length; i++) {
-              const c = routeCoords[i];
-              const d = haversineDistance2(busCoord, c as [number, number]);
-              if (d < min) min = d;
-              if (min < 60) break;
-            }
-            return min < 60;
-          });
-        }
+        // Strict bus filtering by line number, compatible sentido, and GPS freshness (never hijack other lines!)
+        const lineBuses = filterBusesForActiveLine(enhancedBuses, activeLine);
         setBuses(lineBuses);
         
         const hasValidCurrentStop = Boolean(
@@ -262,42 +309,51 @@ const LineRouteMap: React.FC<LineRouteMapProps> = ({ line, currentStop = null, o
             maxLat = Math.max(maxLat, currentStop.latitude);
           }
 
-          const lngDiff = maxLng - minLng;
-          const latDiff = maxLat - minLat;
+          // Always store FULL route bounds (+ ~3km terminal buffer) for polling so distant buses on long corridors are never clipped!
+          if (isFinite(minLng) && isFinite(maxLng) && isFinite(minLat) && isFinite(maxLat)) {
+            const fetchBuffer = 0.03;
+            routeBoundsRef.current = {
+              north: maxLat + fetchBuffer,
+              south: minLat - fetchBuffer,
+              east: maxLng + fetchBuffer,
+              west: minLng - fetchBuffer,
+            };
+          }
+
+          let camMinLng = minLng;
+          let camMaxLng = maxLng;
+          let camMinLat = minLat;
+          let camMaxLat = maxLat;
+          const lngDiff = camMaxLng - camMinLng;
+          const latDiff = camMaxLat - camMinLat;
           
-          if (lngDiff > 0.5 || latDiff > 0.5) {
-            const padding = 0.01;
+          if (lngDiff > 0.65 || latDiff > 0.65) {
+            const padding = 0.02;
             const refLng =
               currentStop && isFinite(currentStop.longitude)
                 ? currentStop.longitude
-                : lineBuses[0]?.longitude ?? routeCoords[0]?.[0] ?? -47.882778;
+                : focusedBus?.longitude ?? lineBuses[0]?.longitude ?? routeCoords[0]?.[0] ?? -47.882778;
             const refLat =
               currentStop && isFinite(currentStop.latitude)
                 ? currentStop.latitude
-                : lineBuses[0]?.latitude ?? routeCoords[0]?.[1] ?? -15.793889;
-            minLng = refLng - padding;
-            maxLng = refLng + padding;
-            minLat = refLat - padding;
-            maxLat = refLat + padding;
+                : focusedBus?.latitude ?? lineBuses[0]?.latitude ?? routeCoords[0]?.[1] ?? -15.793889;
+            camMinLng = refLng - padding;
+            camMaxLng = refLng + padding;
+            camMinLat = refLat - padding;
+            camMaxLat = refLat + padding;
           }
 
-          if (isFinite(minLng) && isFinite(maxLng) && isFinite(minLat) && isFinite(maxLat)) {
-            const lngPadding = Math.max((maxLng - minLng) * 0.05, 0.005);
-            const latPadding = Math.max((maxLat - minLat) * 0.05, 0.005);
+          if (isFinite(camMinLng) && isFinite(camMaxLng) && isFinite(camMinLat) && isFinite(camMaxLat)) {
+            const lngPadding = Math.max((camMaxLng - camMinLng) * 0.05, 0.005);
+            const latPadding = Math.max((camMaxLat - camMinLat) * 0.05, 0.005);
 
             const bounds = {
-              ne: [maxLng + lngPadding, maxLat + latPadding] as [number, number],
-              sw: [minLng - lngPadding, minLat - latPadding] as [number, number],
+              ne: [camMaxLng + lngPadding, camMaxLat + latPadding] as [number, number],
+              sw: [camMinLng - lngPadding, camMinLat - latPadding] as [number, number],
             };
             setCameraBounds(bounds);
             setShouldFitBounds(true); // only fit on initial load
             fitAppliedAtRef.current = Date.now();
-            routeBoundsRef.current = {
-              north: maxLat + latPadding,
-              south: minLat - latPadding,
-              east: maxLng + lngPadding,
-              west: minLng - lngPadding,
-            };
           }
         }
       } catch (error) {
@@ -313,26 +369,12 @@ const LineRouteMap: React.FC<LineRouteMapProps> = ({ line, currentStop = null, o
       try {
         const boundsParam = routeBoundsRef.current || undefined;
         const enhancedBuses = await busService.getEnhancedBuses(boundsParam, '30min');
-        let lineBuses = enhancedBuses.filter(bus => matchesLineNumber(bus.linha, line.linha) || bus.linha?.includes(String(line.linha)));
-        const currentRouteCoords = resolvedCoordsRef.current;
-        if (lineBuses.length === 0 && enhancedBuses.length > 0 && currentRouteCoords.length > 0) {
-          lineBuses = enhancedBuses.filter(b => {
-            const busCoord: [number, number] = [b.longitude, b.latitude];
-            let min = Infinity;
-            for (let i = 0; i < currentRouteCoords.length; i++) {
-              const c = currentRouteCoords[i];
-              const d = haversineDistance2(busCoord, c as [number, number]);
-              if (d < min) min = d;
-              if (min < 60) break;
-            }
-            return min < 60;
-          });
-        }
-        if (__DEV__) {
-          console.log('[LineRouteMap] raw buses:', enhancedBuses.length, 'filtered:', lineBuses.length, 'bounds?', !!boundsParam);
-        }
-        if (lineBuses.length === 0) return; // keep previous to avoid flicker
-        // Stabilize updates with movement threshold & missing cycles retention
+        busService.recordTelemetrySnapshot(enhancedBuses);
+
+        const activeTargetLine = resolvedLineRef.current;
+        const lineBuses = filterBusesForActiveLine(enhancedBuses, activeTargetLine);
+
+        // Stabilize coordinate jitter while ALWAYS keeping fresh telemetry fields (velocidade, datalocal, direcao)
         setBuses(prev => {
           if (prev.length === 0) return lineBuses;
           const byId: Record<string, EnhancedBus> = {};
@@ -343,12 +385,23 @@ const LineRouteMap: React.FC<LineRouteMapProps> = ({ line, currentStop = null, o
             if (upd) {
               if (oldBus.id) missingCyclesRef.current[oldBus.id] = 0;
               const moved = haversineDistance2([oldBus.longitude, oldBus.latitude], [upd.longitude, upd.latitude]) > MOVEMENT_THRESHOLD_METERS;
-              merged.push(moved ? upd : oldBus);
+              merged.push(
+                moved
+                  ? upd
+                  : {
+                      ...upd,
+                      latitude: oldBus.latitude,
+                      longitude: oldBus.longitude,
+                    }
+              );
               if (oldBus.id) delete byId[oldBus.id];
             } else if (oldBus.id) {
               const miss = (missingCyclesRef.current[oldBus.id] || 0) + 1;
               missingCyclesRef.current[oldBus.id] = miss;
-              if (miss < LAST_SEEN_MAX_MISSING_CYCLES) merged.push(oldBus);
+              const ts = busService.parseBusTimestamp(oldBus.datalocal, oldBus.dataregistro, NaN);
+              if (miss < LAST_SEEN_MAX_MISSING_CYCLES && Number.isFinite(ts) && Date.now() - ts <= MAX_DISPLAY_BUS_AGE_MS) {
+                merged.push(oldBus);
+              }
             }
           });
           Object.values(byId).forEach(n => { if (n.id) missingCyclesRef.current[n.id] = 0; merged.push(n); });
@@ -360,7 +413,7 @@ const LineRouteMap: React.FC<LineRouteMapProps> = ({ line, currentStop = null, o
     }, 8000);
 
     return () => clearInterval(interval);
-  }, [line, currentStop]);
+  }, [line, currentStop, focusedBus]);
   
   // Convert route to GeoJSON
   const routeGeoJSON = useMemo(() => {
@@ -492,7 +545,7 @@ const LineRouteMap: React.FC<LineRouteMapProps> = ({ line, currentStop = null, o
     }
   };
 
-  // Calculate ETA from closest approaching visible bus to selectedStop
+  // Calculate ETA from closest approaching visible bus to selectedStop using the unified BusService ETA engine
   const selectedStopEta = useMemo(() => {
     if (!selectedStop || !isFinite(selectedStop.longitude) || !isFinite(selectedStop.latitude)) {
       return null;
@@ -500,89 +553,61 @@ const LineRouteMap: React.FC<LineRouteMapProps> = ({ line, currentStop = null, o
     if (!visibleBuses.length) {
       return {
         hasBus: false,
-        etaText: 'Sem ônibus na rota',
+        etaText: 'Sem ônibus ativo na rota',
         subText: 'Parada ' + selectedStop.codigo,
         isNow: false,
       };
     }
 
-    const stopCoord: [number, number] = [selectedStop.longitude, selectedStop.latitude];
-    const routeCoords = (resolvedLine.coordinates || []) as [number, number][];
-
-    // Helper to find closest vertex index on polyline
-    const findClosestIndex = (pt: [number, number]) => {
-      let bestIdx = 0;
-      let bestDist = Infinity;
-      for (let i = 0; i < routeCoords.length; i++) {
-        const d = haversineDistance2(pt, routeCoords[i]);
-        if (d < bestDist) {
-          bestDist = d;
-          bestIdx = i;
-        }
-      }
-      return bestIdx;
-    };
-
-    const hasRoute = routeCoords.length > 1;
-    const stopIdx = hasRoute ? findClosestIndex(stopCoord) : 0;
-
     type Candidate = {
       bus: EnhancedBus;
       distanceMeters: number;
       etaMinutes: number;
-      isApproachingAlongRoute: boolean;
     };
 
-    const candidates: Candidate[] = visibleBuses.map(bus => {
-      const busCoord: [number, number] = [bus.longitude, bus.latitude];
-      const directDist = haversineDistance2(busCoord, stopCoord);
-      let distanceMeters = directDist;
-      let isApproachingAlongRoute = true;
-
-      if (hasRoute) {
-        const busIdx = findClosestIndex(busCoord);
-        if (busIdx <= stopIdx) {
-          let polyDist = 0;
-          for (let i = busIdx; i < stopIdx; i++) {
-            polyDist += haversineDistance2(routeCoords[i], routeCoords[i + 1]);
-          }
-          distanceMeters = Math.max(directDist, polyDist);
-          isApproachingAlongRoute = true;
-        } else {
-          isApproachingAlongRoute = directDist <= 200;
-        }
+    const approaching: Candidate[] = [];
+    for (const bus of visibleBuses) {
+      const est = busService.estimateBusArrivalAtStop(bus, selectedStop, resolvedLine, {
+        maxEtaMinutes: 120,
+        tempoPercursoMinutes,
+      });
+      if (est.isApproachingAlongRoute && isFinite(est.etaMinutes)) {
+        approaching.push({
+          bus,
+          distanceMeters: est.distanceMeters,
+          etaMinutes: est.etaMinutes,
+        });
       }
+    }
 
-      const rawSpeed = typeof bus.velocidade === 'number' && bus.velocidade > 5 ? bus.velocidade : 22;
-      const speedMs = (rawSpeed * 1000) / 3600;
-      const etaMinutes = distanceMeters <= 120 ? 0 : Math.max(1, Math.round(distanceMeters / speedMs / 60));
-
+    // Never fall back to buses that have already passed the stop!
+    if (approaching.length === 0) {
       return {
-        bus,
-        distanceMeters,
-        etaMinutes,
-        isApproachingAlongRoute,
+        hasBus: false,
+        etaText: 'Sem ônibus a caminho',
+        subText: `Parada ${selectedStop.codigo} • próximos já passaram`,
+        isNow: false,
       };
-    });
+    }
 
-    const approaching = candidates.filter(c => c.isApproachingAlongRoute);
-    const pool = approaching.length > 0 ? approaching : candidates;
-    pool.sort((a, b) => a.etaMinutes - b.etaMinutes || a.distanceMeters - b.distanceMeters);
+    approaching.sort((a, b) => a.etaMinutes - b.etaMinutes || a.distanceMeters - b.distanceMeters);
 
-    const best = pool[0];
-    const isNow = best.etaMinutes <= 0 || best.distanceMeters <= 150;
+    const best = approaching[0];
+    const isNow = best.etaMinutes < 0.75 || best.distanceMeters <= 75;
+    const roundedMin = Math.max(1, Math.round(best.etaMinutes));
     const distLabel = best.distanceMeters >= 1000
       ? (best.distanceMeters / 1000).toFixed(1) + ' km'
       : Math.round(best.distanceMeters) + ' m';
+    const prefixLabel = best.bus.prefixo ? ` • Veíc. ${best.bus.prefixo}` : '';
 
     return {
       hasBus: true,
-      etaText: isNow ? 'Chegando agora' : best.etaMinutes + ' min',
-      subText: 'Parada ' + selectedStop.codigo + ' • ' + distLabel,
+      etaText: isNow ? 'Chegando agora' : `${roundedMin} min`,
+      subText: `Parada ${selectedStop.codigo} • ${distLabel}${prefixLabel}`,
       prefixo: best.bus.prefixo,
       isNow,
     };
-  }, [selectedStop, visibleBuses, resolvedLine.coordinates]);
+  }, [selectedStop, visibleBuses, resolvedLine, tempoPercursoMinutes]);
 
   // Calcular pontos de início e fim da rota
   const routeEndpoints = useMemo(() => {
@@ -620,7 +645,7 @@ const LineRouteMap: React.FC<LineRouteMapProps> = ({ line, currentStop = null, o
             Linha {resolvedLine.linha}
           </Text>
           <Text style={[styles.headerSubtitle, { color: appTheme === 'dark' ? '#aaa' : '#666' }]}>
-            {resolvedLine.sentido}
+            {formatSentidoLabel(resolvedLine.sentido) || resolvedLine.nome || ''}
           </Text>
         </View>
         {/* Bus counter */}

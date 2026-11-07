@@ -5,8 +5,26 @@ const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
 const FILESYSTEM_THRESHOLD = 100 * 1024; // 100KB - suggestion to original for deciding if to use FS
 const MAX_CACHE_FILE_SIZE = 40 * 1024 * 1024; // 40MB maximum for writing/reading at once
 const MAX_READ_FILE_SIZE = 45 * 1024 * 1024; // 45MB - if the file is larger than this, don't try to read
+const MAX_MEMORY_CACHE_ENTRIES = 30;
+const PROTECTED_STORAGE_KEYS = new Set([
+  'favorites_buses',
+  'favorites_stops',
+  'bus-tracker-storage',
+]);
 
 const memoryCache = new Map<string, { data: any; timestamp: number }>();
+
+function setMemoryCacheEntry(key: string, entry: { data: any; timestamp: number }) {
+  if (memoryCache.has(key)) {
+    memoryCache.delete(key);
+  } else if (memoryCache.size >= MAX_MEMORY_CACHE_ENTRIES) {
+    const oldestKey = memoryCache.keys().next().value;
+    if (oldestKey !== undefined) {
+      memoryCache.delete(oldestKey);
+    }
+  }
+  memoryCache.set(key, entry);
+}
 
 export interface CacheOptions {
   ttl?: number; // Time to live in milliseconds
@@ -43,13 +61,15 @@ export async function getCachedOrFetch<T>(
 
   if (forceRefresh) {
     const data = await fetcher();
-    memoryCache.set(key, { data, timestamp: now });
+    setMemoryCacheEntry(key, { data, timestamp: now });
     await setCacheData(key, data);
     return data;
   }
 
   const memEntry = memoryCache.get(key);
   if (memEntry && now - memEntry.timestamp < ttl && isCacheEntryUsable(key, memEntry.data)) {
+    // Refresh LRU order
+    setMemoryCacheEntry(key, memEntry);
     return memEntry.data as T;
   }
 
@@ -58,20 +78,20 @@ export async function getCachedOrFetch<T>(
   if (timestamp && now - Number(timestamp) < ttl) {
     const cache = await getCacheData<T>(key);
     if (isCacheEntryUsable(key, cache)) {
-      memoryCache.set(key, { data: cache, timestamp: Number(timestamp) });
+      setMemoryCacheEntry(key, { data: cache, timestamp: Number(timestamp) });
       return cache as T;
     }
   }
 
   const data = await fetcher();
-  memoryCache.set(key, { data, timestamp: Date.now() });
+  setMemoryCacheEntry(key, { data, timestamp: Date.now() });
   await setCacheData(key, data);
   return data;
 }
 
 export async function setCacheData<T>(key: string, data: T): Promise<void> {
   try {
-    memoryCache.set(key, { data, timestamp: Date.now() });
+    setMemoryCacheEntry(key, { data, timestamp: Date.now() });
     const str = typeof data === 'string' ? data : JSON.stringify(data);
     const useFS = str.length > FILESYSTEM_THRESHOLD && str.length <= MAX_CACHE_FILE_SIZE;
 
@@ -223,18 +243,7 @@ export async function clearCache(key?: string): Promise<void> {
         await AsyncStorage.removeItem(`${key}_fs`);
       }
     } else {
-      memoryCache.clear();
-      await AsyncStorage.clear();
-      // Opcional: limpar todos arquivos do FileSystem se necessário
-      const dir = FileSystem.documentDirectory;
-      if (dir) {
-        const files = await FileSystem.readDirectoryAsync(dir);
-        for (const file of files) {
-          if (file.endsWith('.json')) {
-            await FileSystem.deleteAsync(dir + file, { idempotent: true });
-          }
-        }
-      }
+      await clearAllCache();
     }
   } catch (error) {
     console.error('Failed to clear cache:', error);
@@ -244,16 +253,29 @@ export async function clearCache(key?: string): Promise<void> {
 export async function clearAllCache(): Promise<void> {
   try {
     memoryCache.clear();
-    // Clean AsyncStorage
-    await AsyncStorage.clear();
+    // Clean only cache keys in AsyncStorage, preserving user favorites and settings
+    const allKeys = await AsyncStorage.getAllKeys();
+    const keysToRemove = allKeys.filter(k => {
+      if (PROTECTED_STORAGE_KEYS.has(k)) return false;
+      for (const protectedKey of PROTECTED_STORAGE_KEYS) {
+        if (k.startsWith(`${protectedKey}_`)) return false;
+      }
+      return true;
+    });
+    if (keysToRemove.length > 0) {
+      await AsyncStorage.multiRemove(keysToRemove);
+    }
 
-    // Clean all cache files from the FileSystem
+    // Clean all cache files from the FileSystem (excluding any protected files)
     const dir = FileSystem.documentDirectory;
     if (dir) {
       const files = await FileSystem.readDirectoryAsync(dir);
       for (const file of files) {
         if (file.endsWith('.json')) {
-          await FileSystem.deleteAsync(dir + file, { idempotent: true });
+          const baseKey = file.slice(0, -5);
+          if (!PROTECTED_STORAGE_KEYS.has(baseKey)) {
+            await FileSystem.deleteAsync(dir + file, { idempotent: true });
+          }
         }
       }
     }
@@ -330,7 +352,9 @@ export async function getCacheStats() {
 
 export async function forceRefreshMainCaches(): Promise<void> {
   try {
-    const entries = Object.values(CACHE_KEYS);
+    const entries = Object.values(CACHE_KEYS).filter(
+      key => !PROTECTED_STORAGE_KEYS.has(key)
+    );
     await Promise.all(entries.map(key => clearCache(key)));
   } catch (error) {
     console.error('Failed to refresh caches:', error);
@@ -356,4 +380,6 @@ export const CACHE_KEYS = {
   BUS_HORARIO: 'bus_hours',
   BUS_HORARIO_DADOS: 'bus_hours_dados',
   NUMEROS_BUS_DADOS: 'numeros_bus_dados',
+  FAVORITES_BUSES: 'favorites_buses',
+  FAVORITES_STOPS: 'favorites_stops',
 } as const;

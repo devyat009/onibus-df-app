@@ -1,8 +1,9 @@
 import { useBusFavorites, useStopFavorites } from '@/src/hooks/useFavorites';
-import { busService, frotaService, stopService } from '@/src/services/api';
+import { busService, stopService } from '@/src/services/api';
 import { useAppStore } from '@/src/store';
 import { BusLine, BusStop, StopRealtimeArrivalsMap, StopScheduleV2 } from '@/src/types';
-import { buildLineKey } from '@/src/utils/lineUtils';
+import { getStopProgressAlongRoute } from '@/src/utils/geoUtils';
+import { buildLineKey, formatSentidoLabel, normalizeSentido } from '@/src/utils/lineUtils';
 import { FontAwesome5, MaterialIcons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
 import {
@@ -35,6 +36,7 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
   const [error, setError] = useState<string | null>(null);
   const [realtimeArrivals, setRealtimeArrivals] = useState<StopRealtimeArrivalsMap>({});
   const [realtimeLoading, setRealtimeLoading] = useState(false);
+  const [hasInitialRealtimeLoaded, setHasInitialRealtimeLoaded] = useState(false);
   const [realtimeError, setRealtimeError] = useState<string | null>(null);
   
   // Route map view state
@@ -92,12 +94,14 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
   useEffect(() => {
     let isMounted = true;
     let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
+    setHasInitialRealtimeLoaded(false);
 
     const fetchRealtime = async () => {
       if (!scheduleData || !scheduleData.lines?.length) {
         if (isMounted) {
           setRealtimeArrivals({});
           setRealtimeError(null);
+          setHasInitialRealtimeLoaded(true);
         }
         return;
       }
@@ -109,10 +113,19 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
         }
 
         const lines = scheduleData.lines.map(item => item.line);
+        const tempoPercursoByLineKey: Record<string, number> = {};
+        for (const item of scheduleData.lines) {
+          const tp = item.schedules.find(s => s.tempo_percurso > 0)?.tempo_percurso ?? 0;
+          if (tp > 0) {
+            tempoPercursoByLineKey[buildLineKey(item.line.linha, item.line.sentido)] = tp;
+          }
+        }
+
         const realtime = await busService.getRealtimeArrivalsForStop(stop, lines, {
-          radiusMeters: 10000,
+          radiusMeters: 25000,
           maxPerLine: 3,
-          maxEtaMinutes: 60,
+          maxEtaMinutes: 90,
+          tempoPercursoByLineKey,
         });
 
         if (isMounted) {
@@ -127,10 +140,11 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
       } finally {
         if (isMounted) {
           setRealtimeLoading(false);
+          setHasInitialRealtimeLoaded(true);
           if (refreshTimeout) {
             clearTimeout(refreshTimeout);
           }
-          refreshTimeout = setTimeout(fetchRealtime, 30000);
+          refreshTimeout = setTimeout(fetchRealtime, 15000);
         }
       }
     };
@@ -149,21 +163,46 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
     return time.substring(0, 5); // Remove seconds if present
   };
 
+  const formatMinutesOfDay = (totalMinutes: number): string => {
+    const wrapped = ((Math.round(totalMinutes) % 1440) + 1440) % 1440;
+    const hh = String(Math.floor(wrapped / 60)).padStart(2, '0');
+    const mm = String(wrapped % 60).padStart(2, '0');
+    return `${hh}:${mm}`;
+  };
+
+  /**
+   * Computes how many minutes after terminal departure (`hr_prevista`) a bus reaches `stop`
+   * along `line.coordinates` using `tempo_percurso` (or 22 km/h urban commercial speed fallback).
+   */
+  const computeStopTravelOffsetMinutes = (line: BusLine, tempoPercursoMinutes: number): number => {
+    if (!isFinite(stop.longitude) || !isFinite(stop.latitude)) return 0;
+    const progress = getStopProgressAlongRoute(
+      [stop.longitude, stop.latitude],
+      line.coordinates
+    );
+    if (!progress || progress.distanceFromStartMeters <= 250) {
+      return 0;
+    }
+    if (tempoPercursoMinutes > 0) {
+      return Math.round(tempoPercursoMinutes * progress.progressFraction);
+    }
+    return Math.round((progress.distanceFromStartMeters / 1000 / 22) * 60);
+  };
+
   type NormalizedSchedule = {
     horario: string;
     dias_semana: string;
     dia_label?: string;
   };
 
-  const getNextSchedules = (horarios: any[], limit = 5) => {
-    
+  const getNextSchedules = (horarios: any[], limit = 6, stopOffsetMinutes = 0) => {
     const now = new Date();
     const currentTime = now.getHours() * 60 + now.getMinutes();
     const currentDay = now.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
 
-    // Map day of week to dias_semana index
-    // dias_semana format: "SSSSSNN" (Mon, Tue, Wed, Thu, Fri, Sat, Sun)
+    // Map day of week to dias_semana index: "SSSSSNN" (Mon..Sun)
     const dayIndex = currentDay === 0 ? 6 : currentDay - 1;
+    const prevDayIndex = (dayIndex + 6) % 7;
 
     const normalizedSchedules = horarios
       .map((item): NormalizedSchedule | null => {
@@ -197,53 +236,67 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
       })
       .filter((schedule): schedule is NormalizedSchedule => schedule !== null);
 
-    const todaySchedules = normalizedSchedules
-      .filter(schedule =>
-        schedule.dias_semana.length === 7 ? schedule.dias_semana[dayIndex] === 'S' : true
-      )
-      .map(schedule => {
-        const [hours, minutes] = schedule.horario.split(':').map(Number);
-        const scheduleTime = hours * 60 + minutes;
-        return {
-          hr_prevista: schedule.horario,
-          scheduleTime,
+    const candidateEntries: {
+      hr_prevista: string;
+      scheduleTime: number;
+      diffMinutes: number;
+      dia_label?: string;
+      dias_semana: string;
+      isPast: boolean;
+    }[] = [];
+
+    for (const schedule of normalizedSchedules) {
+      const [hours, minutes] = schedule.horario.split(':').map(Number);
+      if (isNaN(hours) || isNaN(minutes)) continue;
+      const depMinutes = hours * 60 + minutes;
+      const arrivalMinutesRaw = depMinutes + stopOffsetMinutes;
+
+      const runsToday = schedule.dias_semana.length === 7 ? schedule.dias_semana[dayIndex] === 'S' : true;
+      const runsPrevDay = schedule.dias_semana.length === 7 ? schedule.dias_semana[prevDayIndex] === 'S' : true;
+
+      // 1. Late-night departure from yesterday whose travel offset rolls past midnight into today
+      if (runsPrevDay && arrivalMinutesRaw >= 1440) {
+        const todayArrivalMin = arrivalMinutesRaw - 1440;
+        const diff = todayArrivalMin - currentTime;
+        candidateEntries.push({
+          hr_prevista: formatMinutesOfDay(todayArrivalMin),
+          scheduleTime: todayArrivalMin,
+          diffMinutes: diff,
           dia_label: schedule.dia_label,
           dias_semana: schedule.dias_semana,
-          isPast: scheduleTime <= currentTime,
-        };
-      })
-      .filter(schedule => !isNaN(schedule.scheduleTime))
-      .sort((a, b) => a.scheduleTime - b.scheduleTime);
+          isPast: diff < -1,
+        });
+      }
 
-    // Separate future and past schedules
-    const futureSchedules = todaySchedules.filter(s => !s.isPast);
-    const pastSchedules = todaySchedules.filter(s => s.isPast);
+      // 2. Today's departures (including ones whose stop arrival rolls slightly past midnight tonight)
+      if (runsToday) {
+        const diff = arrivalMinutesRaw - currentTime;
+        candidateEntries.push({
+          hr_prevista: formatMinutesOfDay(arrivalMinutesRaw),
+          scheduleTime: arrivalMinutesRaw,
+          diffMinutes: diff,
+          dia_label: schedule.dia_label,
+          dias_semana: schedule.dias_semana,
+          isPast: diff < -1,
+        });
+      }
+    }
 
-    // If we have future schedules, return them
+    // Deduplicate identical arrival minutes and sort chronologically
+    candidateEntries.sort((a, b) => a.scheduleTime - b.scheduleTime);
+    const uniqueEntries = candidateEntries.filter(
+      (item, idx, arr) => idx === 0 || item.scheduleTime !== arr[idx - 1].scheduleTime
+    );
+
+    const futureSchedules = uniqueEntries.filter(s => !s.isPast);
+    const pastSchedules = uniqueEntries.filter(s => s.isPast);
+
     if (futureSchedules.length > 0) {
       return futureSchedules.slice(0, limit);
     }
 
-    // If no future schedules, return the last past schedules (showing what already passed)
     return pastSchedules.slice(-limit);
   };
-
-  const getBusInfo = (lineNumber: string, sentido: string) => {
-    // doesn't infer a void return type and can be used directly in render logic.
-    frotaService.getNumerosVeiculosCached()
-      .then(data => {
-        const busInfo = data.find(bus => bus.numero.toLowerCase() === lineNumber.toLowerCase() && bus.sentido.toLowerCase() === sentido.toLowerCase());
-        if (busInfo) {
-          console.warn('[STOPDETAIL] Found bus info:', busInfo);
-        }
-      })
-      .catch(err => {
-        console.warn('[STOPDETAIL] Error fetching bus info:', err);
-      });
-
-    // Synchronous fallback used in the UI until/if async data arrives (logged above).
-    return { descricao: 'N/A' };
-  }
 
   const buildDisplayItems = (
     lineNumber: string,
@@ -251,14 +304,14 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
     fallbackSchedules: ReturnType<typeof getNextSchedules>,
   ): DisplayItem[] => {
     const items: DisplayItem[] = [];
-    getBusInfo(lineNumber, lineSentido);
     const lineKey = buildLineKey(lineNumber, lineSentido);
     const realtimeItems = realtimeArrivals[lineKey]?.arrivals ?? [];
-    const now = new Date();
 
+    let maxRealtimeEta = -Infinity;
     realtimeItems.forEach(arrival => {
       const eta = Math.max(0, arrival.etaMinutes);
-      const isNow = eta < 1;
+      if (eta > maxRealtimeEta) maxRealtimeEta = eta;
+      const isNow = eta < 0.75;
       const minutes = Math.max(1, Math.round(eta));
       items.push({
         label: isNow ? 'Agora' : String(minutes),
@@ -268,27 +321,32 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
       });
     });
 
-    //if (items.length < 3) {
-      fallbackSchedules.forEach(schedule => {
-        if (!schedule) return;
-        if (items.length >= 3) return;
+    fallbackSchedules.forEach(schedule => {
+      if (!schedule) return;
+      if (items.length >= 3) return;
 
-        const [hours, minutes] = schedule.hr_prevista.split(':').map(Number);
-        const scheduleDate = new Date(now);
-        scheduleDate.setHours(hours, minutes, 0, 0);
-        const diffMinutes = Math.round((scheduleDate.getTime() - now.getTime()) / 60000);
-        const isPast = Boolean(schedule.isPast);
-        const isMinutes = diffMinutes >= 0 && diffMinutes <= 60 && !isPast;
+      const diffMinutes = Math.round(schedule.diffMinutes);
+      const isPast = Boolean(schedule.isPast);
 
-        items.push({
-          label: isMinutes ? String(diffMinutes) : formatSchedule(schedule.hr_prevista),
-          unit: isMinutes ? 'min' : undefined,
-          isRealtime: false,
-          isNow: false,
-          isPast,
-        });
+      // When live GPS buses are already displayed, skip scheduled slots that correspond to
+      // (or precede) the already-tracked live vehicles so secondary times strictly increase!
+      if (realtimeItems.length > 0) {
+        if (isPast || diffMinutes <= Math.round(maxRealtimeEta) + 5) {
+          return;
+        }
+      }
+
+      const isMinutes = diffMinutes >= 0 && diffMinutes <= 60 && !isPast;
+
+      items.push({
+        label: isMinutes ? String(Math.max(1, diffMinutes)) : formatSchedule(schedule.hr_prevista),
+        unit: isMinutes ? 'min' : undefined,
+        isRealtime: false,
+        isNow: false,
+        isPast,
       });
-    //}
+    });
+
     return items.slice(0, 3);
   };
 
@@ -457,7 +515,7 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {(realtimeLoading || realtimeError) && (
+        {((realtimeLoading && !hasInitialRealtimeLoaded) || realtimeError) && (
           <View
             style={[
               styles.realtimeBanner,
@@ -484,29 +542,32 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
         )}
         {scheduleData && scheduleData.lines.length > 0 ? (
           (() => {
-            // Group lines by line number to avoid duplicates
+            // Group lines by composite key (line number + normalized sentido) so IDA and VOLTA remain distinct
             const lineGroups = new Map<string, typeof scheduleData.lines>();
             scheduleData.lines.forEach(lineData => {
-              const lineNumber = lineData.line.linha;
-              if (!lineGroups.has(lineNumber)) {
-                lineGroups.set(lineNumber, []);
+              const groupKey = `${lineData.line.linha}_${normalizeSentido(lineData.line.sentido)}`;
+              if (!lineGroups.has(groupKey)) {
+                lineGroups.set(groupKey, []);
               }
-              lineGroups.get(lineNumber)!.push(lineData);
+              lineGroups.get(groupKey)!.push(lineData);
             });
 
-            // Process each unique line (consolidate multiple entries)
-            const linesWithSchedules = Array.from(lineGroups.entries()).map(([lineNumber, lineDatas]) => {
-              const quantidadeHorarios = 3;
-              // Merge all schedules from all line data entries (different sentidos/times)
+            // Process each unique line+direction
+            const linesWithSchedules = Array.from(lineGroups.entries()).map(([, lineDatas], groupIdx) => {
+              const quantidadeHorarios = 6;
+              // Use the first lineData as representative
+              const lineData = lineDatas[0];
+              const tempoPercurso =
+                lineDatas.flatMap(ld => ld.schedules).find(s => s.tempo_percurso > 0)?.tempo_percurso ?? 0;
+              const stopOffsetMinutes = computeStopTravelOffsetMinutes(lineData.line, tempoPercurso);
+
+              // Merge schedules belonging to this specific line+direction
               const allHorarios = lineDatas.flatMap(ld => 
                 ld.schedules.flatMap(schedule => schedule.horarios)
               );
-              const nextSchedules = getNextSchedules(allHorarios, quantidadeHorarios);
+              const nextSchedules = getNextSchedules(allHorarios, quantidadeHorarios, stopOffsetMinutes);
               const firstSchedule = nextSchedules[0];
               const hasFutureSchedules = !!firstSchedule && !firstSchedule.isPast;
-              
-              // Use the first lineData as representative
-              const lineData = lineDatas[0];
               
               // Build display items to check if has realtime
               const lineKey = buildLineKey(lineData.line.linha, lineData.line.sentido);
@@ -521,17 +582,13 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
               if (hasRealtime) {
                 minEta = Math.min(...realtimeItems.map(a => a.etaMinutes));
               } else if (hasFutureSchedules && firstSchedule) {
-                const [hours, minutes] = firstSchedule.hr_prevista.split(':').map(Number);
-                const now = new Date();
-                const scheduleDate = new Date(now);
-                scheduleDate.setHours(hours, minutes, 0, 0);
-                minEta = Math.round((scheduleDate.getTime() - now.getTime()) / 60000);
+                minEta = Math.max(0, Math.round(firstSchedule.diffMinutes));
               }
 
               
               return {
                 lineData,
-                index: 0,
+                index: groupIdx,
                 nextSchedules,
                 hasFutureSchedules,
                 hasRealtime,
@@ -541,14 +598,14 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
             });
 
             // Sort by priority:
-            // 1. Favorite lines (but only if they haven't passed yet)
+            // 1. Favorite lines (if they have realtime or future schedules)
             // 2. Has realtime data
             // 3. Minimum ETA (smaller first)
             // 4. Has future schedules
             const sortedLines = linesWithSchedules.sort((a, b) => {
-              // Priority 1: Favorites first (but only if they haven't passed)
-              const aFavoriteAndActive = a.isFavorite && a.hasFutureSchedules;
-              const bFavoriteAndActive = b.isFavorite && b.hasFutureSchedules;
+              // Priority 1: Favorites first (but only if active/upcoming)
+              const aFavoriteAndActive = a.isFavorite && (a.hasRealtime || a.hasFutureSchedules);
+              const bFavoriteAndActive = b.isFavorite && (b.hasRealtime || b.hasFutureSchedules);
               if (aFavoriteAndActive && !bFavoriteAndActive) return -1;
               if (!aFavoriteAndActive && bFavoriteAndActive) return 1;
               
@@ -583,8 +640,13 @@ const StopDetail: React.FC<StopDetailProps> = ({ stop, onBack }) => {
                   <MaterialIcons name="directions-bus" size={24} color="#007AFF" />
                   <View style={styles.lineInfo}>
                     <Text style={[styles.lineTitle, { color: appTheme === 'dark' ? '#fff' : '#000' }]}>
-                      Linha {lineData.line.linha} - {lineData.line.nome}
+                      Linha {lineData.line.linha}{lineData.line.nome ? ` - ${lineData.line.nome}` : ''}
                     </Text>
+                    {Boolean(lineData.line.sentido) && (
+                      <Text style={{ fontSize: 12, color: appTheme === 'dark' ? '#aaa' : '#666', marginTop: 2 }}>
+                        Sentido: {formatSentidoLabel(lineData.line.sentido)}
+                      </Text>
+                    )}
                   </View>
 
                   <View style={styles.schedulesContainer}>

@@ -2,8 +2,8 @@ import { useAppStore } from "../store";
 import { ApiResponse, Bus, BusApiProperties, BusLine, BusLineV2, BusStop, DadosNumerosVeiculos, EnhancedBus, FrotaOperadora, LineApiProperties, MapBounds, NewBusGeoApiResponse, StopRealtimeArrivalsMap } from "../types";
 import { CACHE_KEYS, CacheOptions, getCachedOrFetch } from "../utils/cacheManager";
 import appConfig from "../utils/config";
-import { createBoundsFromRadius, haversineDistance, utmToLatLngZone23S } from "../utils/geoUtils";
-import { buildLineKey, matchesLineNumber, normalizeLineNumber, normalizeSentido, stripLeadingZeros } from "../utils/lineUtils";
+import { calculateBearing, calculateRouteDistanceToStop, createBoundsFromRadius, haversineDistance, parseBusHeading, utmToLatLngZone23S } from "../utils/geoUtils";
+import { areSentidosCompatible, buildLineKey, getLineLookupKeys, matchesLineNumber, normalizeLineNumber, normalizeSentido, stripLeadingZeros } from "../utils/lineUtils";
 import { ApiError } from "./apiError";
 import type { ApiService } from "./api";
 import { FrotaService } from "./frotaService";
@@ -74,6 +74,41 @@ export class BusService {
 		}
 	}
 
+	/**
+	 * Parses the true vehicle GPS fix timestamp.
+	 * IMPORTANT: Always prioritize `datalocal` (vehicle onboard GPS timestamp in Brasilia -03:00)
+	 * over `dataregistro` (SEMOB backend batch-upsert timestamp, which updates to NOW even on
+	 * stale/offline vehicles whose GPS stopped days ago).
+	 */
+	public parseBusTimestamp(datalocal?: string, dataregistro?: string, fallbackNow: number = Date.now()): number {
+		if (datalocal) {
+			const trimmed = datalocal.trim();
+			if (trimmed) {
+				let isoString = trimmed.includes('T')
+					? trimmed
+					: trimmed.replace(' ', 'T');
+				if (!/[Zz]|[+-]\d{2}:?\d{2}$/.test(isoString)) {
+					isoString += '-03:00';
+				}
+				const parsed = new Date(isoString).getTime();
+				if (Number.isFinite(parsed) && parsed > 946684800000) {
+					return parsed;
+				}
+			}
+		}
+		if (dataregistro) {
+			const parsed = new Date(dataregistro).getTime();
+			if (Number.isFinite(parsed) && parsed > 946684800000) {
+				return parsed;
+			}
+		}
+		return fallbackNow;
+	}
+
+	public recordTelemetrySnapshot(buses: Bus[]): void {
+		this.updateTelemetryHistory(buses);
+	}
+
 	private updateTelemetryHistory(buses: Bus[]): void {
 		const now = Date.now();
 		for (const bus of buses) {
@@ -89,14 +124,28 @@ export class BusService {
 			}
 
 			const speedKmh = this.extractBusSpeed(bus);
+			const busTimestamp = this.parseBusTimestamp(bus.datalocal, bus.dataregistro, now);
+			if (now - busTimestamp > TELEMETRY_MAX_AGE_MS) {
+				continue;
+			}
 			const sample: TelemetrySample = {
-				timestamp: now,
+				timestamp: busTimestamp,
 				latitude,
 				longitude,
 				speedKmh,
 			};
 
 			const history = this.telemetryHistory.get(key) ?? [];
+			const lastSample = history[history.length - 1];
+			// Avoid pushing duplicate GPS snapshot if timestamp & coordinates did not change
+			if (
+				lastSample &&
+				lastSample.timestamp === sample.timestamp &&
+				lastSample.latitude === sample.latitude &&
+				lastSample.longitude === sample.longitude
+			) {
+				continue;
+			}
 			history.push(sample);
 			if (history.length > TELEMETRY_HISTORY_LIMIT) {
 				history.splice(0, history.length - TELEMETRY_HISTORY_LIMIT);
@@ -133,11 +182,47 @@ export class BusService {
 	}
 
 	private extractBusSpeed(bus: Bus): number {
-		const raw = Number(bus.velocidade ?? 0);
-		return Number.isFinite(raw) ? raw : 0;
+		const raw = Number(String(bus.velocidade ?? 0).replace(',', '.'));
+		return Number.isFinite(raw) && raw >= 0 ? Math.min(raw, 110) : 0;
+	}
+
+	public getEffectiveBusHeading(bus: Bus, speedKmh?: number): number | null {
+		const speed = speedKmh ?? this.extractBusSpeed(bus);
+		const key = this.getTelemetryKey(bus);
+		const history = key ? this.telemetryHistory.get(key) : undefined;
+
+		// Prefer actual displacement vector when the bus moved >= 15m recently
+		if (history && history.length >= 2) {
+			const curr = history[history.length - 1];
+			for (let i = history.length - 2; i >= 0; i--) {
+				const prev = history[i];
+				const dt = curr.timestamp - prev.timestamp;
+				if (dt > 0 && dt <= 3 * 60 * 1000) {
+					const movedMeters = haversineDistance(
+						prev.latitude,
+						prev.longitude,
+						curr.latitude,
+						curr.longitude
+					);
+					if (movedMeters >= 15) {
+						return calculateBearing(
+							[prev.longitude, prev.latitude],
+							[curr.longitude, curr.latitude]
+						);
+					}
+				}
+			}
+		}
+
+		return parseBusHeading(bus.direcao, speed);
 	}
 
 	private getTelemetrySpeed(bus: Bus, fallbackSpeedKmh: number): number {
+		// If current GPS Doppler speed reports the bus is currently stopped, do not resurrect an old cruising speed
+		if (fallbackSpeedKmh <= 1.2) {
+			return fallbackSpeedKmh;
+		}
+
 		const key = this.getTelemetryKey(bus);
 		if (!key) {
 			return fallbackSpeedKmh;
@@ -148,13 +233,14 @@ export class BusService {
 		}
 		const samples = history.slice(-TELEMETRY_HISTORY_LIMIT);
 		if (samples.length >= 2) {
-			let aggregate = 0;
-			let segments = 0;
+			let weightedSum = 0;
+			let weightTotal = 0;
 			for (let i = 1; i < samples.length; i++) {
 				const previous = samples[i - 1];
 				const current = samples[i];
 				const timeDiff = current.timestamp - previous.timestamp;
-				if (timeDiff <= 0) {
+				// Require at least 5s between distinct fixes to prevent GPS jitter velocity spikes
+				if (timeDiff < 5000 || timeDiff > 3 * 60 * 1000) {
 					continue;
 				}
 				const distanceMeters = haversineDistance(
@@ -163,32 +249,182 @@ export class BusService {
 					current.latitude,
 					current.longitude
 				);
-				if (!isFinite(distanceMeters) || distanceMeters <= 0) {
+				if (!isFinite(distanceMeters) || distanceMeters < 5) {
 					continue;
 				}
 				const speedMs = distanceMeters / (timeDiff / 1000);
-				if (!isFinite(speedMs) || speedMs <= 0) {
-					continue;
+				const segSpeedKmh = Math.min(90, speedMs * 3.6);
+				if (isFinite(segSpeedKmh) && segSpeedKmh > 0) {
+					const weight = i; // weight newer segments higher
+					weightedSum += segSpeedKmh * weight;
+					weightTotal += weight;
 				}
-				const speedKmh = speedMs * 3.6;
-				aggregate += speedKmh;
-				segments += 1;
 			}
-			if (segments > 0) {
-				const averageFromPositions = aggregate / segments;
-				if (averageFromPositions > 0) {
-					return averageFromPositions;
+			if (weightTotal > 0) {
+				const displacementSpeedKmh = weightedSum / weightTotal;
+				return 0.5 * fallbackSpeedKmh + 0.5 * displacementSpeedKmh;
+			}
+		}
+
+		return fallbackSpeedKmh;
+	}
+
+	/**
+	 * Unified, realistic urban ETA calculator used by both StopDetail and LineRouteMap.
+	 * Accounts for:
+	 * - True GPS timestamp freshness (`datalocal`) & conservative signal-age dead reckoning
+	 * - Heading-aware route polyline projection (handles Brasilia's looping/overlapping corridors & circular routes)
+	 * - Two-zone speed damping (near-term smoothed speed blended into corridor commercial speed over distance)
+	 */
+	public estimateBusArrivalAtStop(
+		bus: Bus,
+		stop: BusStop,
+		line: BusLine,
+		options?: {
+			maxEtaMinutes?: number;
+			maxBusAgeMs?: number;
+			tempoPercursoMinutes?: number;
+		}
+	): {
+		etaMinutes: number;
+		distanceMeters: number;
+		speedKmh: number;
+		isApproachingAlongRoute: boolean;
+		isApproachingSoon: boolean;
+		isStale: boolean;
+	} {
+		const now = Date.now();
+		const maxBusAgeMs = options?.maxBusAgeMs ?? 8 * 60 * 1000; // 8 minutes strict real-time freshness
+		const maxEtaMinutes = options?.maxEtaMinutes ?? 90;
+
+		const busTimestamp = this.parseBusTimestamp(bus.datalocal, bus.dataregistro, NaN);
+		const ageMs = Number.isFinite(busTimestamp) ? now - busTimestamp : 0;
+		const isStale = !Number.isFinite(busTimestamp) || ageMs > maxBusAgeMs || ageMs < -5 * 60 * 1000;
+
+		const rawSpeedKmh = this.extractBusSpeed(bus);
+		const smoothedSpeedKmh = this.getTelemetrySpeed(bus, rawSpeedKmh);
+		const headingDeg = this.getEffectiveBusHeading(bus, rawSpeedKmh);
+
+		const stopCoord: [number, number] = [stop.longitude, stop.latitude];
+		const busCoord: [number, number] = [bus.longitude, bus.latitude];
+		const routeCoords = (line.coordinates || []) as [number, number][];
+		const hasRouteGeometry = routeCoords.length >= 2;
+		const isCircular = normalizeSentido(line.sentido) === 'C';
+
+		const routeCheck = calculateRouteDistanceToStop(
+			busCoord,
+			stopCoord,
+			hasRouteGeometry ? routeCoords : undefined,
+			isCircular,
+			headingDeg,
+			rawSpeedKmh
+		);
+
+		let isApproachingAlongRoute = routeCheck.isApproachingAlongRoute;
+
+		// Additional telemetry history check when no route geometry is available
+		if (!hasRouteGeometry && isApproachingAlongRoute && routeCheck.distanceMeters > 150) {
+			const telemetryKey = this.getTelemetryKey(bus);
+			const history = telemetryKey ? this.telemetryHistory.get(telemetryKey) : undefined;
+			if (history && history.length >= 2) {
+				const prevSample = history[history.length - 2];
+				const prevDist = haversineDistance(
+					stop.latitude,
+					stop.longitude,
+					prevSample.latitude,
+					prevSample.longitude
+				);
+				if (isFinite(prevDist) && routeCheck.distanceMeters - prevDist > 35) {
+					isApproachingAlongRoute = false;
 				}
 			}
 		}
-		const fallbackSamples = samples
-			.map(sample => sample.speedKmh)
-			.filter(speed => isFinite(speed) && speed > 0);
-		if (!fallbackSamples.length) {
-			return fallbackSpeedKmh;
+
+		const distanceMeters = routeCheck.distanceMeters;
+		if (!isApproachingAlongRoute || isStale || !isFinite(distanceMeters)) {
+			return {
+				etaMinutes: Infinity,
+				distanceMeters,
+				speedKmh: smoothedSpeedKmh,
+				isApproachingAlongRoute: false,
+				isApproachingSoon: false,
+				isStale,
+			};
 		}
-		const average = fallbackSamples.reduce((sum, speed) => sum + speed, 0) / fallbackSamples.length;
-		return average > 0 ? average : fallbackSpeedKmh;
+
+		// Arriving right now within 75m along the route
+		if (distanceMeters <= 75) {
+			return {
+				etaMinutes: 0,
+				distanceMeters,
+				speedKmh: smoothedSpeedKmh,
+				isApproachingAlongRoute: true,
+				isApproachingSoon: true,
+				isStale: false,
+			};
+		}
+
+		// Reference commercial speed (includes intermediate stops & traffic signals)
+		let vRefKmh = 22;
+		const tempoPercurso = options?.tempoPercursoMinutes ?? 0;
+		if (tempoPercurso > 0 && routeCheck.totalRouteMeters > 1000) {
+			const scheduledKmh = (routeCheck.totalRouteMeters / 1000) / (tempoPercurso / 60);
+			if (Number.isFinite(scheduledKmh)) {
+				vRefKmh = Math.max(15, Math.min(36, scheduledKmh));
+			}
+		}
+
+		const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
+		const dNear = Math.min(distanceMeters, 800);
+		const dFar = Math.max(0, distanceMeters - 800);
+
+		let dwellSeconds = 0;
+		let vNearKmh: number;
+		let vFarKmh: number;
+
+		if (rawSpeedKmh <= 1.5) {
+			// Stopped at origin terminal vs stopped mid-route (traffic light / boarding)
+			const atOriginTerminal =
+				routeCheck.totalRouteMeters > 500 && routeCheck.busDistanceFromStartMeters <= 200;
+			dwellSeconds = atOriginTerminal ? 90 : 25;
+			vNearKmh = Math.max(15, vRefKmh * 0.82);
+			vFarKmh = vRefKmh;
+		} else {
+			vNearKmh = clamp(smoothedSpeedKmh, 12, 48);
+			vFarKmh = 0.3 * clamp(smoothedSpeedKmh, 15, 45) + 0.7 * vRefKmh;
+		}
+
+		let travelSeconds =
+			dwellSeconds +
+			dNear / (vNearKmh / 3.6) +
+			dFar / (vFarKmh / 3.6);
+
+		// Compensate conservatively for the elapsed seconds since `datalocal` was recorded on a moving bus
+		if (rawSpeedKmh > 5 && ageMs > 0) {
+			const ageSec = Math.min(ageMs / 1000, 90);
+			travelSeconds = Math.max(0, travelSeconds - 0.55 * ageSec);
+		}
+
+		const etaMinutes = travelSeconds <= 35 ? 0 : Math.max(0, travelSeconds / 60);
+		if (!isFinite(etaMinutes) || etaMinutes > maxEtaMinutes) {
+			return {
+				etaMinutes: Infinity,
+				distanceMeters,
+				speedKmh: smoothedSpeedKmh,
+				isApproachingAlongRoute: false,
+				isApproachingSoon: false,
+				isStale: false,
+			};
+		}
+
+		return {
+			etaMinutes,
+			distanceMeters,
+			speedKmh: smoothedSpeedKmh,
+			isApproachingAlongRoute: true,
+			isApproachingSoon: distanceMeters <= 450 || etaMinutes <= 2,
+			isStale: false,
+		};
 	}
 
 	// #endregion
@@ -250,32 +486,23 @@ export class BusService {
 			allBuses = await this.getBusesDadosApi();
 		}
 
+		const parseTimestamp = (dl?: string, dr?: string) => this.parseBusTimestamp(dl, dr, NaN);
 		function filterActiveBusesRecent(buses: Bus[], filter: '30min' | '24h' = '30min'): Bus[] {
 			const now = Date.now();
-			const TWENTY_FOUR_HOURS = 9999999999 * 60 * 60 * 1000; // all time
-			const TWO_HOURS = 2 * 60 * 60 * 1000; // 2 horas para captar mais ônibus
+			const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+			const THIRTY_MINUTES = 30 * 60 * 1000;
+			const TOLERANCE_FUTURE_MS = 5 * 60 * 1000; // 5 min tolerance for server/tracker clock drift
 
-			const timeLimit = filter === '24h' ? TWENTY_FOUR_HOURS : TWO_HOURS;
+			const timeLimit = filter === '24h' ? TWENTY_FOUR_HOURS : THIRTY_MINUTES;
 
 			const validBuses = buses.filter(bus => {
 				if (!bus.datalocal && !bus.dataregistro) return false;
 
-				let busTime: number;
-
-				if (bus.dataregistro) {
-					// dataregistro já está em formato ISO UTC
-					busTime = new Date(bus.dataregistro).getTime();
-				} else {
-					// datalocal precisa ser convertido corretamente
-					const isoString = bus.datalocal.includes('T')
-						? bus.datalocal
-						: bus.datalocal.replace(' ', 'T');
-					busTime = new Date(isoString).getTime();
-				}
+				const busTime = parseTimestamp(bus.datalocal, bus.dataregistro);
 
 				if (isNaN(busTime)) return false;
 				const timeDiff = now - busTime;
-				return timeDiff >= 0 && timeDiff <= timeLimit;
+				return timeDiff >= -TOLERANCE_FUTURE_MS && timeDiff <= timeLimit;
 			});
 
 			return validBuses;
@@ -424,6 +651,7 @@ export class BusService {
 			radiusMeters?: number;
 			maxPerLine?: number;
 			maxEtaMinutes?: number;
+			tempoPercursoByLineKey?: Record<string, number>;
 		}
 	): Promise<StopRealtimeArrivalsMap> {
 		if (!stop || !isFinite(stop.latitude) || !isFinite(stop.longitude)) {
@@ -445,13 +673,13 @@ export class BusService {
 			return {};
 		}
 
-		const radiusMeters = options?.radiusMeters ?? 1500;
+		const radiusMeters = options?.radiusMeters ?? 20000;
 		const maxPerLine = options?.maxPerLine ?? 3;
 		const maxEtaMinutes = options?.maxEtaMinutes ?? 90;
-
+		const tempoPercursoByLineKey = options?.tempoPercursoByLineKey;
 
 		const bounds = createBoundsFromRadius(stop.latitude, stop.longitude, radiusMeters);
-		const buses = await this.getBuses(bounds);
+		const buses = await this.getBuses(bounds, '30min');
 
 		if (!buses.length) {
 			return {};
@@ -462,256 +690,117 @@ export class BusService {
 			line: BusLine;
 			sentido: string;
 			key: string;
-			normalized: string;
-			digits: string;
-			trimmed: string;
+			lookupKeys: string[];
 		};
-		const descriptors: LineDescriptor[] = lines.map(line => {
-			const normalized = normalizeLineNumber(line.linha);
-			const digits = normalized.replace(/[^0-9]/g, '');
-			const trimmed = digits ? stripLeadingZeros(digits) : '';
-			return {
-				line,
-				sentido: normalizeSentido(line.sentido),
-				key: buildLineKey(line.linha, line.sentido),
-				normalized,
-				digits,
-				trimmed,
-			};
-		});
+		const descriptors: LineDescriptor[] = lines.map(line => ({
+			line,
+			sentido: normalizeSentido(line.sentido),
+			key: buildLineKey(line.linha, line.sentido),
+			lookupKeys: getLineLookupKeys(line.linha),
+		}));
 
 		if (!descriptors.length) {
 			return {};
 		}
 
-
-		// Build lookup maps
-  const descriptorBuckets = new Map<string, LineDescriptor[]>();
-  
-  for (const descriptor of descriptors) {
-    for (const key of [descriptor.normalized, descriptor.digits, descriptor.trimmed]) {
-      if (!key) continue;
-      
-      let list = descriptorBuckets.get(key);
-      if (!list) {
-        list = [];
-        descriptorBuckets.set(key, list);
-      }
-      if (!list.includes(descriptor)) {
-        list.push(descriptor);
-      }
-    }
-  }
-
-  // Pre-build fallback lookup structure (only if needed)
-  const buildFallbackMap = () => {
-    const fallbackMap = new Map<string, LineDescriptor[]>();
-    
+		// Build canonical lookup map without cross-ramal suffix collisions
+		const descriptorBuckets = new Map<string, LineDescriptor[]>();
 		for (const descriptor of descriptors) {
-			if (!descriptor.digits && !descriptor.trimmed) continue;
-			
-			const descriptorDigits = descriptor.digits || '';
-			const descriptorTrimmed = descriptor.trimmed || '';
-			
-			// Store by suffix patterns for digits variant
-			if (descriptorDigits.length >= 3) {
-				for (let i = 3; i <= descriptorDigits.length; i++) {
-					const suffix = descriptorDigits.slice(-i);
-					let list = fallbackMap.get(suffix);
-					if (!list) {
-						list = [];
-						fallbackMap.set(suffix, list);
-					}
-					if (!list.includes(descriptor)) {
-						list.push(descriptor);
-					}
+			for (const key of descriptor.lookupKeys) {
+				if (!key) continue;
+				let list = descriptorBuckets.get(key);
+				if (!list) {
+					list = [];
+					descriptorBuckets.set(key, list);
 				}
-			}
-
-			// Store by suffix patterns for trimmed variant
-			if (descriptorTrimmed.length >= 3 && descriptorTrimmed !== descriptorDigits) {
-				for (let i = 3; i <= descriptorTrimmed.length; i++) {
-					const suffix = descriptorTrimmed.slice(-i);
-					let list = fallbackMap.get(suffix);
-					if (!list) {
-						list = [];
-						fallbackMap.set(suffix, list);
-					}
-					if (!list.includes(descriptor)) {
-						list.push(descriptor);
-					}
+				if (!list.includes(descriptor)) {
+					list.push(descriptor);
 				}
 			}
 		}
-    
-    return fallbackMap;
-  };
 
-  let fallbackMap: Map<string, LineDescriptor[]> | null = null;
+		const result: StopRealtimeArrivalsMap = {};
 
-  const result: StopRealtimeArrivalsMap = {};
-  const stats = {
-    totalBuses: buses.length,
-    missingCoords: 0,
-    noDescriptor: 0,
-    outsideRadius: 0,
-    speedZeroTooFar: 0,
-    etaOutOfRange: 0,
-    sentidoMismatch: 0,
-    lineMismatch: 0,
-    matched: 0,
-    fallbackMatches: 0,
-  };
-  // Pre-cache normalized bus data
-	const normalizedBuses = buses.map(bus => {
-    if (!bus || !isFinite(bus.latitude) || !isFinite(bus.longitude)) {
-      return null;
-    }
+		for (const bus of buses) {
+			if (!bus || !isFinite(bus.latitude) || !isFinite(bus.longitude) || !bus.linha) {
+				continue;
+			}
 
-    const normalized = normalizeLineNumber(bus.linha);
-    const digits = normalized.replace(/[^0-9]/g, '');
-    const trimmedDigits = digits ? stripLeadingZeros(digits) : '';
-    const busSentido = normalizeSentido(bus.sentido);
-		const baseSpeedKmh = typeof bus.velocidade === 'number' ? bus.velocidade : Number(bus.velocidade ?? 0);
-		const speedKmh = this.getTelemetrySpeed(bus, baseSpeedKmh);
+			// Find matching candidate descriptors via canonical line keys
+			const busKeys = getLineLookupKeys(bus.linha);
+			const candidateSet = new Set<LineDescriptor>();
+			for (const bKey of busKeys) {
+				const bucket = descriptorBuckets.get(bKey);
+				if (bucket) {
+					for (const d of bucket) candidateSet.add(d);
+				}
+			}
+			if (candidateSet.size === 0) {
+				continue;
+			}
 
-    return {
-      bus,
-      normalized,
-      digits,
-      trimmedDigits,
-      busSentido,
-      speedKmh,
-    };
-  }).filter((item): item is NonNullable<typeof item> => item !== null);
+			const directDistanceToStop = haversineDistance(
+				stop.latitude,
+				stop.longitude,
+				bus.latitude,
+				bus.longitude
+			);
+			if (!isFinite(directDistanceToStop) || directDistanceToStop > radiusMeters * 1.25) {
+				continue;
+			}
 
-  stats.missingCoords = buses.length - normalizedBuses.length;
+			for (const descriptor of candidateSet) {
+				if (!matchesLineNumber(bus.linha, descriptor.line.linha)) {
+					continue;
+				}
+				if (!areSentidosCompatible(bus.sentido, descriptor.line.sentido)) {
+					continue;
+				}
 
-  // Main processing loop
-  for (const busData of normalizedBuses) {
-    const { bus, normalized, digits, trimmedDigits, busSentido, speedKmh } = busData;
+				const tempoPercurso = tempoPercursoByLineKey?.[descriptor.key];
+				const estimate = this.estimateBusArrivalAtStop(bus, stop, descriptor.line, {
+					maxEtaMinutes,
+					tempoPercursoMinutes: tempoPercurso,
+				});
 
-    // Find matching descriptors
-    let candidateDescriptors: LineDescriptor[] | null = null;
+				if (!estimate.isApproachingAlongRoute || !isFinite(estimate.etaMinutes)) {
+					continue;
+				}
 
-    // Try direct lookup first
-    for (const key of [normalized, digits, trimmedDigits]) {
-      const bucket = key ? descriptorBuckets.get(key) : undefined;
-      if (bucket && bucket.length > 0) {
-        candidateDescriptors = bucket;
-        break;
-      }
-    }
+				let entry = result[descriptor.key];
+				if (!entry) {
+					entry = { line: descriptor.line, arrivals: [] };
+					result[descriptor.key] = entry;
+				}
 
-    // Fallback matching (lazy initialization)
-    if (!candidateDescriptors) {
-      if (!fallbackMap) {
-        fallbackMap = buildFallbackMap();
-      }
+				// Deduplicate by vehicle prefixo/id within the same line+direction
+				const existingIdx = entry.arrivals.findIndex(
+					a => (a.bus.prefixo && a.bus.prefixo === bus.prefixo) || (a.bus.id && a.bus.id === bus.id)
+				);
+				const arrivalRecord = {
+					bus,
+					etaMinutes: estimate.etaMinutes,
+					distanceMeters: estimate.distanceMeters,
+					speedKmh: estimate.speedKmh,
+					isApproaching: estimate.isApproachingSoon,
+				};
+				if (existingIdx >= 0) {
+					if (arrivalRecord.etaMinutes < entry.arrivals[existingIdx].etaMinutes) {
+						entry.arrivals[existingIdx] = arrivalRecord;
+					}
+				} else {
+					entry.arrivals.push(arrivalRecord);
+				}
+			}
+		}
 
-      const matches = new Set<LineDescriptor>();
-      
-      for (const busDigitsValue of [digits, trimmedDigits]) {
-        if (!busDigitsValue || busDigitsValue.length < 3) continue;
-        
-        // Check suffix patterns
-        for (let i = 3; i <= busDigitsValue.length; i++) {
-          const suffix = busDigitsValue.slice(-i);
-          const descriptorList = fallbackMap.get(suffix);
-          if (descriptorList) {
-            descriptorList.forEach(d => matches.add(d));
-          }
-        }
-      }
+		// Sort and limit arrivals per line
+		for (const entry of Object.values(result)) {
+			entry.arrivals.sort((a, b) => a.etaMinutes - b.etaMinutes || a.distanceMeters - b.distanceMeters);
+			entry.arrivals = entry.arrivals.slice(0, maxPerLine);
+		}
 
-      if (matches.size === 1) {
-        candidateDescriptors = Array.from(matches);
-        stats.fallbackMatches += 1;
-      } else {
-        stats.noDescriptor += 1;
-        continue;
-      }
-    }
-
-    // Calculate distance (only after we have candidates)
-    const distanceToStop = haversineDistance(
-      stop.latitude,
-      stop.longitude,
-      bus.latitude,
-      bus.longitude
-    );
-
-    if (!isFinite(distanceToStop) || distanceToStop > radiusMeters) {
-      stats.outsideRadius += 1;
-      continue;
-    }
-
-    // Calculate ETA
-    const speedMs = speedKmh > 0 ? (speedKmh * 1000) / 3600 : 0;
-    let etaMinutes: number;
-
-    // Special case for slow or stopped buses
-    if (speedMs <= 0.3) {
-      // 200 meters distance threshold for "approaching"
-      if (distanceToStop <= 200) {
-        etaMinutes = 0;
-      } else {
-        stats.speedZeroTooFar += 1;
-        continue;
-      }
-    } else {
-      etaMinutes = distanceToStop / speedMs / 60;
-      etaMinutes = Math.max(0, etaMinutes - 1); // subtract 1 minute for stop dwell time, due to uncertainty of GPS
-    }
-
-    if (!isFinite(etaMinutes) || etaMinutes < 0 || etaMinutes > maxEtaMinutes) {
-      stats.etaOutOfRange += 1;
-      continue;
-    }
-
-    // 500 meters distance threshold for "approaching"
-    const isApproaching = distanceToStop <= 500 || etaMinutes <= 2;
-
-    // Match against candidates
-    for (const descriptor of candidateDescriptors) {
-      // Validate line match
-      if (!matchesLineNumber(bus.linha, descriptor.line.linha)) {
-        stats.lineMismatch += 1;
-        continue;
-      }
-
-      // Validate sentido match
-      if (busSentido && descriptor.sentido && busSentido !== descriptor.sentido) {
-        stats.sentidoMismatch += 1;
-        continue;
-      }
-
-      // Add arrival
-      let entry = result[descriptor.key];
-      if (!entry) {
-        entry = { line: descriptor.line, arrivals: [] };
-        result[descriptor.key] = entry;
-      }
-
-      entry.arrivals.push({
-        bus,
-        etaMinutes,
-        distanceMeters: distanceToStop,
-        speedKmh,
-        isApproaching,
-      });
-
-      stats.matched += 1;
-    }
-  }
-
-  // Sort and limit arrivals per line
-  for (const entry of Object.values(result)) {
-    entry.arrivals.sort((a, b) => a.etaMinutes - b.etaMinutes);
-    entry.arrivals = entry.arrivals.slice(0, maxPerLine);
-  }
-
-  return result;
+		return result;
 	}
 
 	// #endregion
@@ -779,6 +868,7 @@ export class BusService {
 			longitude,
 			velocidade: properties.velocidade ? Number(String(properties.velocidade).replace(',', '.')) : 0,
 			sentido: properties.veiculo.sentido || '',
+			direcao: properties.direcao || '',
 			datalocal: properties.datalocal || '',
 			dataregistro: '', // Not available in new API
 			tarifa: undefined, // Not available in new API

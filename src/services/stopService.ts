@@ -2,6 +2,7 @@ import { ApiResponse, BusHorario, BusHorarioV2, BusLine, BusLineV2, BusStop, Bus
 import { CACHE_KEYS, CacheOptions, getCachedOrFetch } from "../utils/cacheManager";
 import appConfig from "../utils/config";
 import { getLineBounds, pointToLineDistance } from "../utils/geoUtils";
+import { matchesLineNumber, normalizeSentido } from "../utils/lineUtils";
 import { ApiError } from "./apiError";
 import type { ApiService } from "./api";
 import { BusService } from "./busService";
@@ -84,8 +85,9 @@ export class StopService {
   // #region Cache Stops
   // Cached version of getStops - data persists for shorter time as stops change more frequently
   async getStopsCached(bounds?: MapBounds, options?: CacheOptions): Promise<BusStop[]> {
+    const roundCoord = (n: number) => n.toFixed(2);
     const cacheKey = bounds
-      ? `${CACHE_KEYS.STOPS}_${bounds.north}_${bounds.south}_${bounds.east}_${bounds.west}`
+      ? `${CACHE_KEYS.STOPS}_${roundCoord(bounds.north)}_${roundCoord(bounds.south)}_${roundCoord(bounds.east)}_${roundCoord(bounds.west)}`
       : CACHE_KEYS.STOPS;
 
     return getCachedOrFetch(
@@ -231,16 +233,8 @@ export class StopService {
       this.getStopDadosCached(),
     ]);
 
-    // Helper function to map full sentido to abbreviated sentido
-    const mapSentidoToAbbreviation = (sentido: string): string => {
-      const upperSentido = (sentido || '').trim().toUpperCase();
-      if (upperSentido === 'IDA' || upperSentido === 'I') return 'I';
-      if (upperSentido === 'VOLTA' || upperSentido === 'V') return 'V';
-      if (upperSentido === 'CIRCULAR' || upperSentido === 'C') return 'C';
-      return upperSentido.charAt(0);
-    };
-
     let relevantLines: BusLine[] = [];
+    let usedProximityFallback = false;
 
     if (Array.isArray(paradas)) {
       for (const parada of paradas) {
@@ -253,22 +247,34 @@ export class StopService {
             const numero = parts[0].trim();
             const sentido = parts[1].trim();
             const upperSentido = sentido.toUpperCase();
+            const targetNormSentido = normalizeSentido(upperSentido);
 
             let matchedLine = lines.find(
-              line => line.linha.trim() === numero && line.sentido.trim().toUpperCase() === upperSentido
+              line =>
+                (line.linha.trim() === numero || matchesLineNumber(line.linha, numero)) &&
+                normalizeSentido(line.sentido) === targetNormSentido
             );
 
-            // Fallback: if line is in parada.linParadas but missing from GeoServer lines (or missing that direction),
-            // construct a BusLine entry so schedules for this stop are still displayed
+            // Fallback: if line is in parada.linParadas but missing that specific direction in GeoServer lines,
+            // construct a BusLine entry WITHOUT borrowing opposite-direction coordinates (which would invert ETA!).
             if (!matchedLine) {
-              const sameNumberLine = lines.find(line => line.linha.trim() === numero);
+              const sameNumberLine = lines.find(
+                line => line.linha.trim() === numero || matchesLineNumber(line.linha, numero)
+              );
+              const canShareCoords =
+                sameNumberLine &&
+                (!targetNormSentido ||
+                  targetNormSentido === 'C' ||
+                  normalizeSentido(sameNumberLine.sentido) === 'C' ||
+                  normalizeSentido(sameNumberLine.sentido) === targetNormSentido);
+
               matchedLine = {
                 id: sameNumberLine?.id ?? 0,
-                linha: numero,
+                linha: sameNumberLine?.linha || numero,
                 nome: sameNumberLine?.nome || '',
                 sentido: upperSentido,
                 tarifa: sameNumberLine?.tarifa ?? 0,
-                coordinates: sameNumberLine?.coordinates ?? [],
+                coordinates: canShareCoords ? (sameNumberLine?.coordinates ?? []) : [],
                 tipo: sameNumberLine?.tipo ?? 'LineString',
               };
             }
@@ -276,7 +282,9 @@ export class StopService {
             if (
               matchedLine &&
               !relevantLines.some(
-                l => l.linha.trim() === matchedLine!.linha.trim() && l.sentido.trim().toUpperCase() === matchedLine!.sentido.trim().toUpperCase()
+                l =>
+                  matchesLineNumber(l.linha, matchedLine!.linha) &&
+                  normalizeSentido(l.sentido) === normalizeSentido(matchedLine!.sentido)
               )
             ) {
               relevantLines.push(matchedLine);
@@ -287,6 +295,7 @@ export class StopService {
     }
 
     if (relevantLines.length === 0 && lines.length > 0) {
+      usedProximityFallback = true;
       const tolerances = [60, 120, 250];
       for (const tolerance of tolerances) {
         relevantLines = lines.filter(line => this.doesLinePassThroughStop(line, stop, tolerance));
@@ -295,23 +304,26 @@ export class StopService {
     }
 
     const linesWithSchedules = relevantLines.map(line => {
-      // Map the full sentido name to its abbreviation for matching with horarios
-      const sentidoAbbrev = mapSentidoToAbbreviation(line.sentido);
+      const sentidoAbbrev = normalizeSentido(line.sentido);
 
       let matchingSchedules = horarios.filter(
-        horario => horario.numero_linha === line.linha && horario.sentido === sentidoAbbrev
+        horario =>
+          (horario.numero_linha === line.linha || matchesLineNumber(horario.numero_linha, line.linha)) &&
+          (!sentidoAbbrev || normalizeSentido(horario.sentido) === sentidoAbbrev)
       );
 
       // Fallback if sentido was missing on a proximity-matched line
       if (matchingSchedules.length === 0 && !sentidoAbbrev) {
-        matchingSchedules = horarios.filter(horario => horario.numero_linha === line.linha);
+        matchingSchedules = horarios.filter(
+          horario => horario.numero_linha === line.linha || matchesLineNumber(horario.numero_linha, line.linha)
+        );
       }
 
       return {
         line,
         schedules: matchingSchedules
       };
-    }).filter(item => item.schedules.length > 0);
+    }).filter(item => !usedProximityFallback || item.schedules.length > 0);
 
     return {
       stop,

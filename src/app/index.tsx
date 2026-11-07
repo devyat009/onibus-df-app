@@ -23,6 +23,7 @@ import StopDetail from '../components/StopsMenuComponent/stopDetail.component';
 import StopsPainelMenu from '../components/StopsMenuComponent/stopsPainel.component';
 import { useLocation } from "../hooks/useLocation";
 import { shallowEqualArray, shallowEqualArrayWithDistanceMovingLatLng } from '../utils/geoUtils';
+import { formatSentidoLabel } from '../utils/lineUtils';
 
 export default function Index() {
   // Location hook
@@ -77,6 +78,14 @@ export default function Index() {
   const [selectedStopFromMap, setSelectedStopFromMap] = useState<BusStop | null>(null);
   const [selectedStopForDetail, setSelectedStopForDetail] = useState<BusStop | null>(null);
   const [selectedLineForRouteMap, setSelectedLineForRouteMap] = useState<BusLine | null>(null);
+  const [selectedBusForRouteMap, setSelectedBusForRouteMap] = useState<{
+    prefixo?: string;
+    latitude: number;
+    longitude: number;
+    direcao?: string;
+    velocidade?: number;
+    sentido?: string;
+  } | null>(null);
 
   // Bus stop panel state  (0 = closed, 1 = half-way open, 2 = open fully)
   const [panelState, setPanelState] = useState(0); // 0: closed, 1: half-way open, 2: open fully
@@ -518,20 +527,19 @@ export default function Index() {
           onBusMarkerPress={(bus) => Alert.alert("Ônibus", bus.title || bus.id)}
           onBusRoutePress={(bus) => {
             if (!bus.linha) return;
-            const rawSentido = String(bus.sentido ?? '').trim().toUpperCase();
-            const normalizedSentido =
-              rawSentido === '1' || rawSentido === 'I'
-                ? 'IDA'
-                : rawSentido === '2' || rawSentido === 'V'
-                ? 'VOLTA'
-                : rawSentido === 'C'
-                ? 'CIRCULAR'
-                : rawSentido;
+            setSelectedBusForRouteMap({
+              prefixo: bus.prefixo,
+              latitude: bus.latitude,
+              longitude: bus.longitude,
+              direcao: bus.direcao,
+              velocidade: bus.velocidade,
+              sentido: bus.sentido,
+            });
             setSelectedLineForRouteMap({
               id: 0,
               linha: bus.linha,
               nome: bus.operadora?.servico || '',
-              sentido: normalizedSentido,
+              sentido: formatSentidoLabel(bus.sentido),
               tarifa: 0,
               coordinates: [],
               tipo: 'LineString',
@@ -792,13 +800,20 @@ export default function Index() {
         visible={selectedLineForRouteMap !== null}
         transparent={false}
         animationType="slide"
-        onRequestClose={() => setSelectedLineForRouteMap(null)}
+        onRequestClose={() => {
+          setSelectedLineForRouteMap(null);
+          setSelectedBusForRouteMap(null);
+        }}
       >
         <SafeAreaView style={{ flex: 1 }}>
           {selectedLineForRouteMap && (
             <LineRouteMap
               line={selectedLineForRouteMap}
-              onBack={() => setSelectedLineForRouteMap(null)}
+              focusedBus={selectedBusForRouteMap}
+              onBack={() => {
+                setSelectedLineForRouteMap(null);
+                setSelectedBusForRouteMap(null);
+              }}
             />
           )}
         </SafeAreaView>

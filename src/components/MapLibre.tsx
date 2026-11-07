@@ -9,7 +9,6 @@ import {
   ShapeSource,
   SymbolLayer
 } from '@maplibre/maplibre-react-native';
-import * as Location from 'expo-location';
 import type { Feature, FeatureCollection, Point } from 'geojson';
 import React, { useCallback, useMemo, useState } from 'react';
 import { Animated, Easing, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -23,6 +22,7 @@ import yellowBlackStripes from '../assets/images/pattern/yellow-black.png';
 import BusStopIcon2 from '../assets/images/svg/bus-stop2.svg';
 import BusIcon from '../assets/images/svg/bus.svg';
 import { shallowEqualArray, shallowEqualArrayWithDistanceMovingLatLng } from '../utils/geoUtils';
+import { formatSentidoLabel } from '../utils/lineUtils';
 
 interface BusStopMarker {
   id: string;
@@ -40,6 +40,7 @@ interface BusMarker {
   linha?: string;
   velocidade?: number;
   sentido?: string;
+  direcao?: string;
   datalocal?: string;
   dataregistro?: string;
   operadora?: {
@@ -117,9 +118,9 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
   const { isFavorite: isBusFavorite, toggleFavorite: toggleBusFavorite } = useBusFavorites();
   const { isFavorite: isStopFavorite } = useStopFavorites();
 
-  // User speed and direction
-  const [userSpeed, setUserSpeed] = useState<number | null>(null);
-  const [userHeading, setUserHeading] = useState<number | null>(null);
+  // User speed and direction derived from unified userLocation store
+  const userSpeed = userLocation?.speed ?? 0;
+  const userHeading = userLocation?.heading ?? null;
 
   // Debug logging
   // useEffect(() => {
@@ -346,24 +347,31 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
   //   }
   // };
 
-  // Handle data update timestamp
+  // Handle data update timestamp (prioritize datalocal — actual vehicle GPS timestamp in Brasilia -03:00)
   const getAtualizadoTexto = (datalocal?: string, dataregistro?: string) => {
-    // Prioritize dataregistro (UTC) over datalocal (local time)
-    const timestamp = dataregistro || datalocal;
-    if (!timestamp) return '';
-
-    let dataBus: Date;
-    if (dataregistro) {
-      // dataregistro already in ISO UTC
-      dataBus = new Date(dataregistro);
-    } else {
-      // datalocal is in local time
-      const isoString = datalocal!.replace(' ', 'T');
-      dataBus = new Date(isoString);
+    let dataBus: Date | null = null;
+    if (datalocal && datalocal.trim()) {
+      let isoString = datalocal.trim().includes('T')
+        ? datalocal.trim()
+        : datalocal.trim().replace(' ', 'T');
+      if (!/[Zz]|[+-]\d{2}:?\d{2}$/.test(isoString)) {
+        isoString += '-03:00';
+      }
+      const parsed = new Date(isoString);
+      if (!isNaN(parsed.getTime())) {
+        dataBus = parsed;
+      }
     }
+    if (!dataBus && dataregistro) {
+      const parsed = new Date(dataregistro);
+      if (!isNaN(parsed.getTime())) {
+        dataBus = parsed;
+      }
+    }
+    if (!dataBus) return '';
 
     const agora = new Date();
-    const diffMs = agora.getTime() - dataBus.getTime();
+    const diffMs = Math.max(0, agora.getTime() - dataBus.getTime());
     const diffMin = Math.floor(diffMs / 60000);
 
     if (diffMin < 1) return 'Atualizado: agora';
@@ -400,60 +408,6 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
       if (anim) anim.stop();
     };
   }, [isFetchingBuses, fetchDuration, progressAnim]);
-
-  // Obtem a velocidade do usuário
-  React.useEffect(() => {
-    let subscription: Location.LocationSubscription | null = null;
-    let idleTimer: ReturnType<typeof setTimeout> | null = null;
-    // Abaixo de ~0.75 m/s (~2.7 km/h) o GPS em repouso gera apenas ruído/deriva (multipath)
-    const MIN_SPEED_MS_THRESHOLD = 0.75;
-
-    const resetIdleTimer = () => {
-      if (idleTimer) clearTimeout(idleTimer);
-      idleTimer = setTimeout(() => {
-        setUserSpeed(0);
-      }, 3500);
-    };
-
-    (async () => {
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') return;
-
-      subscription = await Location.watchPositionAsync(
-        {
-          accuracy: Location.Accuracy.BestForNavigation,
-          distanceInterval: 0,
-          timeInterval: 1000,
-        },
-        (location) => {
-          resetIdleTimer();
-          // location.coords.speed is in m/s (pode ser negativo se inválido ou < 0.75 m/s por ruído de GPS parado)
-          const rawSpeedMs = location.coords.speed;
-          const accuracy = location.coords.accuracy ?? 999;
-
-          if (
-            rawSpeedMs == null ||
-            !isFinite(rawSpeedMs) ||
-            rawSpeedMs < MIN_SPEED_MS_THRESHOLD ||
-            (accuracy > 25 && rawSpeedMs < 1.5)
-          ) {
-            setUserSpeed(0);
-          } else {
-            setUserSpeed(rawSpeedMs * 3.6); // km/h
-          }
-
-          if (location.coords.heading != null && location.coords.heading >= 0) {
-            setUserHeading(location.coords.heading);
-          }
-        }
-      );
-    })();
-
-    return () => {
-      if (idleTimer) clearTimeout(idleTimer);
-      if (subscription) subscription.remove();
-    };
-  }, []);
 
   // Max number of stops and buses to render
   const MAX_STOPS = 50;
@@ -865,9 +819,9 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
                   Velocidade: {selectedBus.velocidade.toFixed(1)} km/h
                 </Text>
               )}
-              {selectedBus.sentido && (
+              {Boolean(formatSentidoLabel(selectedBus.sentido)) && (
                 <Text style={[styles.popupInfo, { color: appTheme === 'dark' ? '#ddd' : '#444' }]}>
-                  Sentido: {selectedBus.sentido === '1' ? 'Ida' : selectedBus.sentido === '2' ? 'Volta' : selectedBus.sentido}
+                  Sentido: {formatSentidoLabel(selectedBus.sentido)}
                 </Text>
               )}
               {(selectedBus.datalocal || selectedBus.dataregistro) && (

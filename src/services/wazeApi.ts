@@ -137,8 +137,9 @@ class WazeTrafficService {
    * Get traffic data with caching (2 minutes TTL)
    */
   async getTrafficJams(bounds: MapBounds): Promise<TrafficJam[]> {
-    // Create cache key based on bounds to cache per region
-    const boundsKey = `${this.cacheKey}_${bounds.north}_${bounds.south}_${bounds.east}_${bounds.west}`;
+    // Round bounds to 2 decimal places (~1.1km grid) to prevent cache key explosion
+    const roundCoord = (n: number) => n.toFixed(2);
+    const boundsKey = `${this.cacheKey}_${roundCoord(bounds.north)}_${roundCoord(bounds.south)}_${roundCoord(bounds.east)}_${roundCoord(bounds.west)}`;
 
     return getCachedOrFetch(
       boundsKey,
