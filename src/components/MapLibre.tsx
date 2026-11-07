@@ -1,4 +1,4 @@
-import { MaterialIcons } from '@expo/vector-icons';
+import { FontAwesome5, MaterialIcons } from '@expo/vector-icons';
 import {
   Camera,
   CircleLayer,
@@ -65,6 +65,7 @@ interface MapLibreBasicProps {
   fetchDuration?: number;
   buses?: BusMarker[];
   onBusMarkerPress?: (bus: BusMarker) => void;
+  onBusRoutePress?: (bus: BusMarker) => void;
 }
 
 type TrafficLabelProperties = {
@@ -98,6 +99,7 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
 
   // Buses
   onBusMarkerPress,
+  onBusRoutePress,
   buses = [],
 }) => {
   const mapTheme = useAppStore(state => state.style) as 'light' | 'dark' | 'osm';
@@ -107,6 +109,7 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
   const [selectedBus, setSelectedBus] = useState<BusMarker | null>(null);
   const [currentBounds, setCurrentBounds] = useState<{ north: number, south: number, east: number, west: number } | null>(null);
   const fadeAnim = React.useRef(new Animated.Value(0)).current;
+  const popupTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isFetching, setIsFetching] = React.useState(false);
   const progressAnim = React.useRef(new Animated.Value(0)).current;
 
@@ -282,6 +285,11 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
 
   const memoizedHandleBusSelect = useCallback(
     (bus: BusMarker) => {
+      if (popupTimeoutRef.current) {
+        clearTimeout(popupTimeoutRef.current);
+        popupTimeoutRef.current = null;
+      }
+
       if (selectedBus?.id === bus.id) {
         // Fade out
         Animated.timing(fadeAnim, {
@@ -298,7 +306,7 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
         }).start();
 
         // Auto fade-out after 5 seconds
-        setTimeout(() => {
+        popupTimeoutRef.current = setTimeout(() => {
           Animated.timing(fadeAnim, {
             toValue: 0,
             duration: 300,
@@ -396,21 +404,53 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
   // Obtem a velocidade do usuário
   React.useEffect(() => {
     let subscription: Location.LocationSubscription | null = null;
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
+    // Abaixo de ~0.75 m/s (~2.7 km/h) o GPS em repouso gera apenas ruído/deriva (multipath)
+    const MIN_SPEED_MS_THRESHOLD = 0.75;
+
+    const resetIdleTimer = () => {
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        setUserSpeed(0);
+      }, 3500);
+    };
+
     (async () => {
       let { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') return;
 
       subscription = await Location.watchPositionAsync(
-        { accuracy: Location.Accuracy.BestForNavigation, distanceInterval: 1, timeInterval: 1000 },
+        {
+          accuracy: Location.Accuracy.BestForNavigation,
+          distanceInterval: 0,
+          timeInterval: 1000,
+        },
         (location) => {
-          // location.coords.speed is in m/s
-          setUserSpeed(location.coords.speed != null ? location.coords.speed * 3.6 : 0); // km/h
-          setUserHeading(location.coords.heading ?? null);
+          resetIdleTimer();
+          // location.coords.speed is in m/s (pode ser negativo se inválido ou < 0.75 m/s por ruído de GPS parado)
+          const rawSpeedMs = location.coords.speed;
+          const accuracy = location.coords.accuracy ?? 999;
+
+          if (
+            rawSpeedMs == null ||
+            !isFinite(rawSpeedMs) ||
+            rawSpeedMs < MIN_SPEED_MS_THRESHOLD ||
+            (accuracy > 25 && rawSpeedMs < 1.5)
+          ) {
+            setUserSpeed(0);
+          } else {
+            setUserSpeed(rawSpeedMs * 3.6); // km/h
+          }
+
+          if (location.coords.heading != null && location.coords.heading >= 0) {
+            setUserHeading(location.coords.heading);
+          }
         }
       );
     })();
 
     return () => {
+      if (idleTimer) clearTimeout(idleTimer);
       if (subscription) subscription.remove();
     };
   }, []);
@@ -836,23 +876,49 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
                 </Text>
               )}
             </View>
-            <TouchableOpacity
-              onPress={toggleFavorite}
-              style={[
-                styles.favoriteButton,
-                isFavorite
-                  ? { backgroundColor: '#FFD600', borderColor: '#FFD600' }
-                  : { backgroundColor: 'transparent', borderColor: '#007AFF', borderWidth: 2 }
-              ]}
-              activeOpacity={0.7}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
-              <MaterialIcons
-                name={isFavorite ? "bookmark" : "bookmark-outline"}
-                size={28}
-                color={isFavorite ? '#fff' : '#007AFF'}
-              />
-            </TouchableOpacity>
+            <View style={styles.popupActions}>
+              {selectedBus.linha && onBusRoutePress && (
+                <TouchableOpacity
+                  onPress={() => {
+                    if (popupTimeoutRef.current) {
+                      clearTimeout(popupTimeoutRef.current);
+                      popupTimeoutRef.current = null;
+                    }
+                    onBusRoutePress(selectedBus);
+                  }}
+                  style={[
+                    styles.favoriteButton,
+                    { backgroundColor: 'transparent', borderColor: '#007AFF', borderWidth: 2 }
+                  ]}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <FontAwesome5
+                    name="route"
+                    size={20}
+                    color="#007AFF"
+                    solid
+                  />
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                onPress={toggleFavorite}
+                style={[
+                  styles.favoriteButton,
+                  isFavorite
+                    ? { backgroundColor: '#FFD600', borderColor: '#FFD600' }
+                    : { backgroundColor: 'transparent', borderColor: '#007AFF', borderWidth: 2 }
+                ]}
+                activeOpacity={0.7}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <MaterialIcons
+                  name={isFavorite ? "bookmark" : "bookmark-outline"}
+                  size={28}
+                  color={isFavorite ? '#fff' : '#007AFF'}
+                />
+              </TouchableOpacity>
+            </View>
           </View>
         </Animated.View>
       )}
@@ -886,6 +952,7 @@ const areMapPropsEqual = (prev: MapLibreBasicProps, next: MapLibreBasicProps) =>
   if (prev.onRegionDidChange !== next.onRegionDidChange) return false;
   // if (prev.onBusStopMarkerPress !== next.onBusStopMarkerPress) return false;
   if (prev.onBusMarkerPress !== next.onBusMarkerPress) return false;
+  if (prev.onBusRoutePress !== next.onBusRoutePress) return false;
 
   // style object: assume stable / memoized upstream; shallow reference check
   if (prev.style !== next.style) return false;
@@ -950,8 +1017,13 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 10,
     borderTopRightRadius: 10,
   },
-  favoriteButton: {
+  popupActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     marginLeft: 12,
+  },
+  favoriteButton: {
     borderRadius: 20,
     padding: 8,
     alignItems: 'center',

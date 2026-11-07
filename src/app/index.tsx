@@ -1,6 +1,6 @@
 import { busService, stopService } from '@/src/services/api';
 import { useAppStore } from '@/src/store';
-import { BusStop } from '@/src/types';
+import { BusLine, BusStop } from '@/src/types';
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useRef, useState } from "react";
 import {
@@ -18,6 +18,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MapLibreBasic from '../components/MapLibre';
+import LineRouteMap from '../components/StopsMenuComponent/lineRouteMap.component';
 import StopDetail from '../components/StopsMenuComponent/stopDetail.component';
 import StopsPainelMenu from '../components/StopsMenuComponent/stopsPainel.component';
 import { useLocation } from "../hooks/useLocation";
@@ -75,6 +76,7 @@ export default function Index() {
   const panelAnim = useState(new Animated.Value(0))[0]; // 0 = fechado, 1 = aberto
   const [selectedStopFromMap, setSelectedStopFromMap] = useState<BusStop | null>(null);
   const [selectedStopForDetail, setSelectedStopForDetail] = useState<BusStop | null>(null);
+  const [selectedLineForRouteMap, setSelectedLineForRouteMap] = useState<BusLine | null>(null);
 
   // Bus stop panel state  (0 = closed, 1 = half-way open, 2 = open fully)
   const [panelState, setPanelState] = useState(0); // 0: closed, 1: half-way open, 2: open fully
@@ -221,6 +223,12 @@ export default function Index() {
         return true;
       }
 
+      // If route map modal is open, close it
+      if (selectedLineForRouteMap) {
+        setSelectedLineForRouteMap(null);
+        return true;
+      }
+
       // If details modal is open, close it
       if (selectedStopForDetail) {
         setSelectedStopForDetail(null);
@@ -243,7 +251,7 @@ export default function Index() {
 
     const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);
     return () => backHandler.remove();
-  }, [panelState, selectedStopForDetail, showSettings]);
+  }, [panelState, selectedLineForRouteMap, selectedStopForDetail, showSettings]);
 
   // Center on user at start
   const handleLocatePress = async () => {
@@ -508,6 +516,27 @@ export default function Index() {
           // Buses
           buses={buses}
           onBusMarkerPress={(bus) => Alert.alert("Ônibus", bus.title || bus.id)}
+          onBusRoutePress={(bus) => {
+            if (!bus.linha) return;
+            const rawSentido = String(bus.sentido ?? '').trim().toUpperCase();
+            const normalizedSentido =
+              rawSentido === '1' || rawSentido === 'I'
+                ? 'IDA'
+                : rawSentido === '2' || rawSentido === 'V'
+                ? 'VOLTA'
+                : rawSentido === 'C'
+                ? 'CIRCULAR'
+                : rawSentido;
+            setSelectedLineForRouteMap({
+              id: 0,
+              linha: bus.linha,
+              nome: bus.operadora?.servico || '',
+              sentido: normalizedSentido,
+              tarifa: 0,
+              coordinates: [],
+              tipo: 'LineString',
+            });
+          }}
         />
         {/* skeleton loading in main map */}
         {/* {(loading.buses || loading.stops || !initialized) && (
@@ -753,6 +782,23 @@ export default function Index() {
             <StopDetail
               stop={selectedStopForDetail}
               onBack={() => setSelectedStopForDetail(null)}
+            />
+          )}
+        </SafeAreaView>
+      </Modal>
+
+      {/* Floating bus route map modal (opened from bus popup on map) */}
+      <Modal
+        visible={selectedLineForRouteMap !== null}
+        transparent={false}
+        animationType="slide"
+        onRequestClose={() => setSelectedLineForRouteMap(null)}
+      >
+        <SafeAreaView style={{ flex: 1 }}>
+          {selectedLineForRouteMap && (
+            <LineRouteMap
+              line={selectedLineForRouteMap}
+              onBack={() => setSelectedLineForRouteMap(null)}
             />
           )}
         </SafeAreaView>
