@@ -1,7 +1,7 @@
 import { useStopFavorites } from "@/src/hooks/useFavorites";
+import { stopService } from "@/src/services/api";
 import { useAppStore } from "@/src/store";
 import { BusStop } from "@/src/types";
-import { CACHE_KEYS, getCacheData } from "@/src/utils/cacheManager";
 import { MaterialIcons } from "@expo/vector-icons";
 import React, { useEffect } from "react";
 import {
@@ -32,9 +32,8 @@ const StopsPainelMenu: React.FC<StopsPainelMenuBasicProps> = ({
     "nearby"
   );
   const [selectedStop, setSelectedStop] = React.useState<BusStop | null>(null);
-  const [busLines, setBusLines] = React.useState<any[]>([]);
+  const [stopLinesMap, setStopLinesMap] = React.useState<Map<number, string>>(new Map());
   const [loadingLines, setLoadingLines] = React.useState(true);
-  const [loadingHorarios, setLoadingHorarios] = React.useState(true);
 
   // Tab state
   const isNearbyActive = activeTab === "nearby";
@@ -43,39 +42,43 @@ const StopsPainelMenu: React.FC<StopsPainelMenuBasicProps> = ({
   const setTab = (tab: "nearby" | "favorites") => setActiveTab(tab);
   const tabBackground = appTheme === "dark" ? "#222" : "#f2f2f2";
 
-
-  // Get horarios from cache
-  useEffect(() => {
-    async function fetchHorariosFromCache() {
-      setLoadingHorarios(true);
-      try {
-        const horarios = await getCacheData(CACHE_KEYS.BUS_HORARIO);
-        // Horários são carregados apenas para garantir que o cache esteja pronto para detalhes
-        if (!Array.isArray(horarios)) {
-          return;
-        }
-      } finally {
-        setLoadingHorarios(false);
-      }
-    }
-
-    fetchHorariosFromCache();
-  }, []);
-
   // Favorites using custom hook
   const { favorites: favoriteStops } = useStopFavorites();
 
   useEffect(() => {
-    async function fetchLinesFromCache() {
+    let isMounted = true;
+    async function fetchStopDados() {
       setLoadingLines(true);
       try {
-        const lines = await getCacheData(CACHE_KEYS.LINES);
-        setBusLines(Array.isArray(lines) ? lines : []);
+        const stopDados = await stopService.getStopDadosCached();
+        if (!isMounted || !Array.isArray(stopDados)) return;
+        const nextMap = new Map<number, string>();
+        for (const entry of stopDados) {
+          if (!entry || !Array.isArray(entry.linParadas)) continue;
+          const uniqueLines = Array.from(
+            new Set(
+              entry.linParadas
+                .map((lp: string) => String(lp).split(" - ")[0]?.trim())
+                .filter(Boolean)
+            )
+          );
+          if (uniqueLines.length > 0) {
+            nextMap.set(Number(entry.id), uniqueLines.join(", "));
+          }
+        }
+        setStopLinesMap(nextMap);
+      } catch (err) {
+        console.warn("[StopsPainelMenu] Failed to load stop lines map:", err);
       } finally {
-        setLoadingLines(false);
+        if (isMounted) {
+          setLoadingLines(false);
+        }
       }
     }
-    fetchLinesFromCache();
+    fetchStopDados();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
 
@@ -107,8 +110,7 @@ const StopsPainelMenu: React.FC<StopsPainelMenuBasicProps> = ({
     const isDark = appTheme === "dark";
     const isLoading =
       loading.stops ||
-      loadingLines ||
-      loadingHorarios;
+      loadingLines;
 
     if (isLoading) {
       return (
@@ -156,11 +158,8 @@ const StopsPainelMenu: React.FC<StopsPainelMenuBasicProps> = ({
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {filteredStops.length > 0 ? (
           filteredStops.map((stop) => {
-            // Bus lines for this stop
-            const stopLines = busLines
-              .filter((line) => line.paradas?.includes(stop.codigo))
-              .map((line) => line.linha)
-              .join(", ");
+            // Bus lines for this stop mapped from stopService.getStopDadosCached()
+            const stopLines = stopLinesMap.get(Number(stop.codigo)) || "";
 
             return (
               <TouchableOpacity

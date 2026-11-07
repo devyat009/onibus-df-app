@@ -1,4 +1,4 @@
-import { MaterialIcons } from '@expo/vector-icons';
+import { FontAwesome5, MaterialIcons } from '@expo/vector-icons';
 import {
   Camera,
   CircleLayer,
@@ -9,7 +9,6 @@ import {
   ShapeSource,
   SymbolLayer
 } from '@maplibre/maplibre-react-native';
-import * as Location from 'expo-location';
 import type { Feature, FeatureCollection, Point } from 'geojson';
 import React, { useCallback, useMemo, useState } from 'react';
 import { Animated, Easing, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -20,8 +19,10 @@ import { TrafficJam } from '../types';
 
 // Assets
 import yellowBlackStripes from '../assets/images/pattern/yellow-black.png';
-import BusStopIcon from '../assets/images/svg/bus-stop.svg';
+import BusStopIcon2 from '../assets/images/svg/bus-stop2.svg';
 import BusIcon from '../assets/images/svg/bus.svg';
+import { shallowEqualArray, shallowEqualArrayWithDistanceMovingLatLng } from '../utils/geoUtils';
+import { formatSentidoLabel } from '../utils/lineUtils';
 
 interface BusStopMarker {
   id: string;
@@ -39,6 +40,7 @@ interface BusMarker {
   linha?: string;
   velocidade?: number;
   sentido?: string;
+  direcao?: string;
   datalocal?: string;
   dataregistro?: string;
   operadora?: {
@@ -64,6 +66,7 @@ interface MapLibreBasicProps {
   fetchDuration?: number;
   buses?: BusMarker[];
   onBusMarkerPress?: (bus: BusMarker) => void;
+  onBusRoutePress?: (bus: BusMarker) => void;
 }
 
 type TrafficLabelProperties = {
@@ -97,6 +100,7 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
 
   // Buses
   onBusMarkerPress,
+  onBusRoutePress,
   buses = [],
 }) => {
   const mapTheme = useAppStore(state => state.style) as 'light' | 'dark' | 'osm';
@@ -106,6 +110,7 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
   const [selectedBus, setSelectedBus] = useState<BusMarker | null>(null);
   const [currentBounds, setCurrentBounds] = useState<{ north: number, south: number, east: number, west: number } | null>(null);
   const fadeAnim = React.useRef(new Animated.Value(0)).current;
+  const popupTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isFetching, setIsFetching] = React.useState(false);
   const progressAnim = React.useRef(new Animated.Value(0)).current;
 
@@ -113,9 +118,9 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
   const { isFavorite: isBusFavorite, toggleFavorite: toggleBusFavorite } = useBusFavorites();
   const { isFavorite: isStopFavorite } = useStopFavorites();
 
-  // User speed and direction
-  const [userSpeed, setUserSpeed] = useState<number | null>(null);
-  const [userHeading, setUserHeading] = useState<number | null>(null);
+  // User speed and direction derived from unified userLocation store
+  const userSpeed = userLocation?.speed ?? 0;
+  const userHeading = userLocation?.heading ?? null;
 
   // Debug logging
   // useEffect(() => {
@@ -124,6 +129,7 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
 
   // Function to toggle favorite for selected bus
   const toggleFavorite = useCallback(() => {
+    //  console.warn('selectedBus:', selectedBus);
     if (!selectedBus?.linha) return;
     toggleBusFavorite(selectedBus.linha);
   }, [selectedBus?.linha, toggleBusFavorite]);
@@ -271,52 +277,101 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
     }
   };
 
-  // Handle bus selection
-  const handleBusSelect = (bus: BusMarker) => {
-    if (selectedBus?.id === bus.id) {
-      // Fade out
-      Animated.timing(fadeAnim, {
-        toValue: 0,
-        duration: 300,
-        useNativeDriver: true,
-      }).start(() => setSelectedBus(null));
-    } else {
-      setSelectedBus(bus);
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }).start();
+  const memoizedOnBusStopMarkerPress = useCallback(
+    (busStop: BusStopMarker) => {
+      onBusStopMarkerPress?.(busStop);
+    },
+    [onBusStopMarkerPress]
+  );
 
-      // Auto fade-out after 5 seconds
-      setTimeout(() => {
+  const memoizedHandleBusSelect = useCallback(
+    (bus: BusMarker) => {
+      if (popupTimeoutRef.current) {
+        clearTimeout(popupTimeoutRef.current);
+        popupTimeoutRef.current = null;
+      }
+
+      if (selectedBus?.id === bus.id) {
+        // Fade out
         Animated.timing(fadeAnim, {
           toValue: 0,
           duration: 300,
           useNativeDriver: true,
         }).start(() => setSelectedBus(null));
-      }, 5000);
-    }
-  };
+      } else {
+        setSelectedBus(bus);
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }).start();
 
-  // Handle data update timestamp
+        // Auto fade-out after 5 seconds
+        popupTimeoutRef.current = setTimeout(() => {
+          Animated.timing(fadeAnim, {
+            toValue: 0,
+            duration: 300,
+            useNativeDriver: true,
+          }).start(() => setSelectedBus(null));
+        }, 5000);
+      }
+    },
+    [selectedBus, fadeAnim]
+  );
+
+  // Handle bus selection
+  // const handleBusSelect = (bus: BusMarker) => {
+  //   if (selectedBus?.id === bus.id) {
+  //     // Fade out
+  //     Animated.timing(fadeAnim, {
+  //       toValue: 0,
+  //       duration: 300,
+  //       useNativeDriver: true,
+  //     }).start(() => setSelectedBus(null));
+  //   } else {
+  //     setSelectedBus(bus);
+  //     Animated.timing(fadeAnim, {
+  //       toValue: 1,
+  //       duration: 300,
+  //       useNativeDriver: true,
+  //     }).start();
+
+  //     // Auto fade-out after 5 seconds
+  //     setTimeout(() => {
+  //       Animated.timing(fadeAnim, {
+  //         toValue: 0,
+  //         duration: 300,
+  //         useNativeDriver: true,
+  //       }).start(() => setSelectedBus(null));
+  //     }, 5000);
+  //   }
+  // };
+
+  // Handle data update timestamp (prioritize datalocal — actual vehicle GPS timestamp in Brasilia -03:00)
   const getAtualizadoTexto = (datalocal?: string, dataregistro?: string) => {
-    // Prioritize dataregistro (UTC) over datalocal (local time)
-    const timestamp = dataregistro || datalocal;
-    if (!timestamp) return '';
-
-    let dataBus: Date;
-    if (dataregistro) {
-      // dataregistro already in ISO UTC
-      dataBus = new Date(dataregistro);
-    } else {
-      // datalocal is in local time
-      const isoString = datalocal!.replace(' ', 'T');
-      dataBus = new Date(isoString);
+    let dataBus: Date | null = null;
+    if (datalocal && datalocal.trim()) {
+      let isoString = datalocal.trim().includes('T')
+        ? datalocal.trim()
+        : datalocal.trim().replace(' ', 'T');
+      if (!/[Zz]|[+-]\d{2}:?\d{2}$/.test(isoString)) {
+        isoString += '-03:00';
+      }
+      const parsed = new Date(isoString);
+      if (!isNaN(parsed.getTime())) {
+        dataBus = parsed;
+      }
     }
+    if (!dataBus && dataregistro) {
+      const parsed = new Date(dataregistro);
+      if (!isNaN(parsed.getTime())) {
+        dataBus = parsed;
+      }
+    }
+    if (!dataBus) return '';
 
     const agora = new Date();
-    const diffMs = agora.getTime() - dataBus.getTime();
+    const diffMs = Math.max(0, agora.getTime() - dataBus.getTime());
     const diffMin = Math.floor(diffMs / 60000);
 
     if (diffMin < 1) return 'Atualizado: agora';
@@ -354,27 +409,23 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
     };
   }, [isFetchingBuses, fetchDuration, progressAnim]);
 
-  // Obtem a velocidade do usuário
-  React.useEffect(() => {
-    let subscription: Location.LocationSubscription | null = null;
-    (async () => {
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') return;
+  // Max number of stops and buses to render
+  const MAX_STOPS = 50;
+  const MAX_BUSES = 75;
+  const STOP_ZOOM_RENDER_THRESHOLD = 14.2; // previously inline condition
+  const BUS_ZOOM_RENDER_THRESHOLD = 13.8; // previously inline condition
 
-      subscription = await Location.watchPositionAsync(
-        { accuracy: Location.Accuracy.BestForNavigation, distanceInterval: 1, timeInterval: 1000 },
-        (location) => {
-          // location.coords.speed is in m/s
-          setUserSpeed(location.coords.speed != null ? location.coords.speed * 3.6 : 0); // km/h
-          setUserHeading(location.coords.heading ?? null);
-        }
-      );
-    })();
+  // Filter stops and buses to render based on current zoom
+  const stopsToRender = useMemo(() => {
+    if (currentZoom < STOP_ZOOM_RENDER_THRESHOLD) return [] as BusStopMarker[];
+    // slice instead of filter with index condition for micro-optimization
+    return busStopMarker.length > MAX_STOPS ? busStopMarker.slice(0, MAX_STOPS) : busStopMarker;
+  }, [busStopMarker, currentZoom]);
 
-    return () => {
-      if (subscription) subscription.remove();
-    };
-  }, []);
+  const busesToRender = useMemo(() => {
+    if (currentZoom < BUS_ZOOM_RENDER_THRESHOLD) return [] as BusMarker[];
+    return buses.length > MAX_BUSES ? buses.slice(0, MAX_BUSES) : buses;
+  }, [buses, currentZoom]);
 
   return (
     <View style={[styles.container, style]}>
@@ -543,26 +594,28 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
         )}
 
         {/* Bus stop markers */}
-        {currentZoom >= 14 && busStopMarker.map((busStop: BusStopMarker) => {
+        {currentZoom >= STOP_ZOOM_RENDER_THRESHOLD && stopsToRender.map((busStop: BusStopMarker, index: number) => {
           const isFavoriteStop = isStopFavorite(busStop.id);
           return (
             <PointAnnotation
-              key={busStop.id}
-              id={busStop.id}
+              key={`bus-stop-${busStop.id}-${index}`}
+              id={`stop-${busStop.id}`}
               coordinate={[busStop.longitude, busStop.latitude]}
-              onSelected={() => onBusStopMarkerPress?.(busStop)}
+              onSelected={() => memoizedOnBusStopMarkerPress(busStop)}
             >
               <View
                 collapsable={false}
                 style={{
                   position: 'relative',
-                  width: 35,
-                  height: 35,
+                  width: 45,
+                  height: 45,
                   alignItems: 'center',
                   justifyContent: 'center',
+                  
                 }}
               >
-                <BusStopIcon width={35} height={35} color="#007AFF" />
+                {/* <BusStopIcon width={35} height={35} color="#007AFF" /> */}
+                <BusStopIcon2 width={45} height={45} style={{ marginTop: 4 }}/>
                 {/* Placeholder for bus stop icon */}
                 {/* <View
                   style={{
@@ -579,8 +632,8 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
                   pointerEvents="none"
                   style={{
                     position: 'absolute',
-                    top: 1,
-                    right: 1,
+                    top: -1,
+                    right: 3,
                     backgroundColor: '#fff',
                     borderRadius: 7,
                     padding: 0.5,
@@ -594,16 +647,16 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
           );
         })}
 
-        {/* Bus markers */}
-        {currentZoom >= 13.4 && buses && buses.map((bus: BusMarker) => {
+          {/* Bus markers */}
+          {currentZoom >= BUS_ZOOM_RENDER_THRESHOLD && busesToRender.map((bus: BusMarker, index: number) => {
           const isFavoriteBus = isBusFavorite(bus.linha ?? '');
           const color = bus.corOperadora || '#5a4799';
           return (
             <PointAnnotation
-              key={bus.id}
-              id={bus.id}
+              key={`bus-${bus.id}-${index}`}
+              id={`bus-${bus.id}`}
               coordinate={[bus.longitude, bus.latitude]}
-              onSelected={() => handleBusSelect(bus)}
+              onSelected={() => memoizedHandleBusSelect(bus)}
             >
               <View
                 collapsable={false}
@@ -613,41 +666,34 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
                   height: 40,
                   alignItems: 'center',
                   justifyContent: 'center',
+                  overflow: 'visible',
                 }}
               >
                 <BusIcon width={30} height={30} color={color} />
-                {/* Placeholder for bus icon */}
-                {/* <View
-                  style={{
-                    width: 30,
-                    height: 30,
-                    backgroundColor: bus.corOperadora || '#5a4799',
-                    borderRadius: 15,
-                    borderWidth: 2,
-                    borderColor: '#fff',
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    shadowColor: '#000',
-                    shadowOpacity: 0.3,
-                    shadowRadius: 3,
-                    shadowOffset: { width: 0, height: 1 },
-                  }}
-                /> */}
                 <View
                   pointerEvents="none"
                   style={{
                     position: 'absolute',
-                    top: -5,
-                    right: 2,
+                    top: 4,
+                    right: 3,
                     backgroundColor: '#fff',
                     borderRadius: 8,
                     padding: 0.5,
                     opacity: isFavoriteBus ? 1 : 0,
                     overflow: 'visible',
                     elevation: 2,
+                    height: 14,
+                    width: 14,
+                    alignItems: 'center',
+                    justifyContent: 'center',
                   }}
                 >
-                  <MaterialIcons name="star" size={16} color="#FFD600" />
+                  <MaterialIcons name="star" size={14} color="#FFD600"
+                  style={{
+                    marginBottom: 1,
+                    marginRight: 1,
+                  }}
+                  />
                 </View>
               </View>
             </PointAnnotation>
@@ -755,7 +801,7 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
           { opacity: fadeAnim },
           { backgroundColor: appTheme === 'dark' ? '#333' : 'white' }
         ]}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <View style={styles.popupContent}>
             <View style={{ flex: 1 }}>
               <Text style={[styles.popupTitle, { color: appTheme === 'dark' ? '#fff' : '#333' }]}>
                 Linha {selectedBus.linha}
@@ -773,9 +819,9 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
                   Velocidade: {selectedBus.velocidade.toFixed(1)} km/h
                 </Text>
               )}
-              {selectedBus.sentido && (
+              {Boolean(formatSentidoLabel(selectedBus.sentido)) && (
                 <Text style={[styles.popupInfo, { color: appTheme === 'dark' ? '#ddd' : '#444' }]}>
-                  Sentido: {selectedBus.sentido === '1' ? 'Ida' : selectedBus.sentido === '2' ? 'Volta' : selectedBus.sentido}
+                  Sentido: {formatSentidoLabel(selectedBus.sentido)}
                 </Text>
               )}
               {(selectedBus.datalocal || selectedBus.dataregistro) && (
@@ -784,27 +830,88 @@ const MapLibreBasic: React.FC<MapLibreBasicProps> = ({
                 </Text>
               )}
             </View>
-            <TouchableOpacity
-              onPress={toggleFavorite}
-              style={[
-                styles.favoriteButton,
-                isFavorite
-                  ? { backgroundColor: '#FFD600', borderColor: '#FFD600' }
-                  : { backgroundColor: 'transparent' }
-              ]}
-              activeOpacity={0.7}
-            >
-              <MaterialIcons
-                name={isFavorite ? "bookmark" : "bookmark-outline"}
-                size={28}
-                color={isFavorite ? '#fff' : '#007AFF'}
-              />
-            </TouchableOpacity>
+            <View style={styles.popupActions}>
+              {selectedBus.linha && onBusRoutePress && (
+                <TouchableOpacity
+                  onPress={() => {
+                    if (popupTimeoutRef.current) {
+                      clearTimeout(popupTimeoutRef.current);
+                      popupTimeoutRef.current = null;
+                    }
+                    onBusRoutePress(selectedBus);
+                  }}
+                  style={[
+                    styles.favoriteButton,
+                    { backgroundColor: 'transparent', borderColor: '#007AFF', borderWidth: 2 }
+                  ]}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <FontAwesome5
+                    name="route"
+                    size={20}
+                    color="#007AFF"
+                    solid
+                  />
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                onPress={toggleFavorite}
+                style={[
+                  styles.favoriteButton,
+                  isFavorite
+                    ? { backgroundColor: '#FFD600', borderColor: '#FFD600' }
+                    : { backgroundColor: 'transparent', borderColor: '#007AFF', borderWidth: 2 }
+                ]}
+                activeOpacity={0.7}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <MaterialIcons
+                  name={isFavorite ? "bookmark" : "bookmark-outline"}
+                  size={28}
+                  color={isFavorite ? '#fff' : '#007AFF'}
+                />
+              </TouchableOpacity>
+            </View>
           </View>
         </Animated.View>
       )}
     </View>
   );
+};
+
+// Custom comparator: re-render only if relevant props truly changed
+const areMapPropsEqual = (prev: MapLibreBasicProps, next: MapLibreBasicProps) => {
+  // Primitive / simple props
+  if (prev.latitude !== next.latitude) return false;
+  if (prev.longitude !== next.longitude) return false;
+  if (prev.zoom !== next.zoom) return false;
+  if (prev.theme !== next.theme) return false;
+  if (prev.showTraffic !== next.showTraffic) return false;
+  if (prev.isFetchingBuses !== next.isFetchingBuses) return false;
+  if (prev.fetchDuration !== next.fetchDuration) return false;
+
+  // Coalesce undefined -> [] so helpers always receive arrays
+  const prevStops = prev.busStopMarker ?? [];
+  const nextStops = next.busStopMarker ?? [];
+  const prevBuses = prev.buses ?? [];
+  const nextBuses = next.buses ?? [];
+
+  if (!shallowEqualArray(prevStops, nextStops)) return false;
+  if (!shallowEqualArrayWithDistanceMovingLatLng(prevBuses, nextBuses, 5)) return false;
+
+  // We assume handlers (callbacks) are memoized upstream; if not, this will still treat
+  // referential changes as non-blocking by NOT comparing them (so we don't force rerender).
+  // To re-render when handlers change, uncomment below:
+  if (prev.onRegionDidChange !== next.onRegionDidChange) return false;
+  // if (prev.onBusStopMarkerPress !== next.onBusStopMarkerPress) return false;
+  if (prev.onBusMarkerPress !== next.onBusMarkerPress) return false;
+  if (prev.onBusRoutePress !== next.onBusRoutePress) return false;
+
+  // style object: assume stable / memoized upstream; shallow reference check
+  if (prev.style !== next.style) return false;
+
+  return true; // No meaningful changes -> skip re-render
 };
 
 const styles = StyleSheet.create({
@@ -828,34 +935,31 @@ const styles = StyleSheet.create({
   },
   popupContent: {
     padding: 14,
-    backgroundColor: 'red'
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   popupTitle: {
     fontWeight: 'bold',
     fontSize: 16,
-    marginLeft: 6,
   },
   popupSubtitle: {
     fontSize: 12,
-    marginLeft: 6,
     marginTop: 4,
   },
   popupOperator: {
     fontSize: 13,
     marginTop: 4,
-    marginLeft: 6,
     fontWeight: '600',
   },
   popupInfo: {
     fontSize: 12,
     marginTop: 2,
-    marginLeft: 6,
   },
   popupTimestamp: {
     fontSize: 10,
     marginTop: 4,
     fontStyle: 'italic',
-    marginLeft: 6,
   },
   fetchBar: {
     position: 'absolute',
@@ -867,14 +971,20 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 10,
     borderTopRightRadius: 10,
   },
-  favoriteButton: {
+  popupActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     marginLeft: 12,
-    //borderWidth: 2,
+  },
+  favoriteButton: {
     borderRadius: 20,
-    padding: 6,
+    padding: 8,
     alignItems: 'center',
     justifyContent: 'center',
+    minWidth: 44,
+    minHeight: 44,
   },
 });
 
-export default MapLibreBasic;
+export default React.memo(MapLibreBasic, areMapPropsEqual);

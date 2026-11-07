@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { CACHE_KEYS, getCacheData, setCacheData } from '../utils/asyncStorage';
+import { CACHE_KEYS, getCacheData, setCacheData } from '../utils/cacheManager';
 
 interface UseFavoritesResult {
   favorites: string[];

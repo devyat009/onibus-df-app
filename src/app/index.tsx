@@ -1,6 +1,6 @@
-import { apiService } from '@/src/services/api';
+import { busService, stopService } from '@/src/services/api';
 import { useAppStore } from '@/src/store';
-import { BusStop } from '@/src/types';
+import { BusLine, BusStop } from '@/src/types';
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useRef, useState } from "react";
 import {
@@ -18,9 +18,12 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MapLibreBasic from '../components/MapLibre';
+import LineRouteMap from '../components/StopsMenuComponent/lineRouteMap.component';
 import StopDetail from '../components/StopsMenuComponent/stopDetail.component';
 import StopsPainelMenu from '../components/StopsMenuComponent/stopsPainel.component';
 import { useLocation } from "../hooks/useLocation";
+import { shallowEqualArray, shallowEqualArrayWithDistanceMovingLatLng } from '../utils/geoUtils';
+import { formatSentidoLabel } from '../utils/lineUtils';
 
 export default function Index() {
   // Location hook
@@ -64,7 +67,7 @@ export default function Index() {
   const [cameraMode, setCameraMode] = useState<'auto' | 'free'>('auto');
   const [userMapZoom, setUserMapZoom] = useState<number | undefined>(undefined);
   const BUS_ZOOM_THRESHOLD = 13.4;
-  const STOPS_ZOOM_THRESHOLD = 14;
+  const STOPS_ZOOM_THRESHOLD = 15.4;
 
   // Settings modal
   const [showSettings, setShowSettings] = useState(false);
@@ -74,6 +77,15 @@ export default function Index() {
   const panelAnim = useState(new Animated.Value(0))[0]; // 0 = fechado, 1 = aberto
   const [selectedStopFromMap, setSelectedStopFromMap] = useState<BusStop | null>(null);
   const [selectedStopForDetail, setSelectedStopForDetail] = useState<BusStop | null>(null);
+  const [selectedLineForRouteMap, setSelectedLineForRouteMap] = useState<BusLine | null>(null);
+  const [selectedBusForRouteMap, setSelectedBusForRouteMap] = useState<{
+    prefixo?: string;
+    latitude: number;
+    longitude: number;
+    direcao?: string;
+    velocidade?: number;
+    sentido?: string;
+  } | null>(null);
 
   // Bus stop panel state  (0 = closed, 1 = half-way open, 2 = open fully)
   const [panelState, setPanelState] = useState(0); // 0: closed, 1: half-way open, 2: open fully
@@ -220,6 +232,12 @@ export default function Index() {
         return true;
       }
 
+      // If route map modal is open, close it
+      if (selectedLineForRouteMap) {
+        setSelectedLineForRouteMap(null);
+        return true;
+      }
+
       // If details modal is open, close it
       if (selectedStopForDetail) {
         setSelectedStopForDetail(null);
@@ -242,7 +260,7 @@ export default function Index() {
 
     const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);
     return () => backHandler.remove();
-  }, [panelState, selectedStopForDetail, showSettings]);
+  }, [panelState, selectedLineForRouteMap, selectedStopForDetail, showSettings]);
 
   // Center on user at start
   const handleLocatePress = async () => {
@@ -300,8 +318,10 @@ export default function Index() {
   // Fetch stops when changing bounds
   useEffect(() => {
     if (!bounds || (userMapZoom ?? 0) < STOPS_ZOOM_THRESHOLD) return;
-    apiService.getStops(bounds)
-      .then(setStops)
+    stopService.getStops(bounds)
+      .then(newStops => {
+        setStops(prev => shallowEqualArray(prev, newStops) ? prev : newStops);
+      })
       .catch((error) => {
         console.error('Error fetching bus stops:', error);
       });
@@ -323,7 +343,8 @@ export default function Index() {
       fetchingBusesRef.current = true;
       setIsFetchingBuses(true);
       try {
-        const result = await apiService.getEnhancedBuses(bounds);
+        const result = await busService.getEnhancedBuses(bounds);
+        console.log(`[DEV] Fetched ${result.length} buses from API`);
         const filteredBuses = showOnlyActiveBuses
           ? result.filter(bus => bus.linha && bus.linha.trim())
           : result;
@@ -354,7 +375,7 @@ export default function Index() {
 
         const firstCount = Math.min(chunkSize, total);
         const firstChunk = filteredBuses.slice(0, firstCount).map(mapBus);
-        setBuses(firstChunk);
+        setBuses(prev => shallowEqualArrayWithDistanceMovingLatLng(prev, firstChunk, 5) ? prev : firstChunk);
 
         const pushNext = (startIndex: number) => {
           if (loadIdRef.current !== myLoadId) return; // canceled by new load
@@ -372,7 +393,11 @@ export default function Index() {
         }
         currentInterval = intervalMs; // reset on success
       } catch (error) {
-        console.warn('Error fetching buses:', error);
+        console.error('[IndexScreen] Error fetching buses:', {
+          error,
+          errorName: error instanceof Error ? error.name : typeof error,
+          errorMessage: error instanceof Error ? error.message : String(error),
+        });
         currentInterval = Math.min(currentInterval + 1000, 30000);
       } finally {
         setIsFetchingBuses(false);
@@ -500,6 +525,26 @@ export default function Index() {
           // Buses
           buses={buses}
           onBusMarkerPress={(bus) => Alert.alert("Ônibus", bus.title || bus.id)}
+          onBusRoutePress={(bus) => {
+            if (!bus.linha) return;
+            setSelectedBusForRouteMap({
+              prefixo: bus.prefixo,
+              latitude: bus.latitude,
+              longitude: bus.longitude,
+              direcao: bus.direcao,
+              velocidade: bus.velocidade,
+              sentido: bus.sentido,
+            });
+            setSelectedLineForRouteMap({
+              id: 0,
+              linha: bus.linha,
+              nome: bus.operadora?.servico || '',
+              sentido: formatSentidoLabel(bus.sentido),
+              tarifa: 0,
+              coordinates: [],
+              tipo: 'LineString',
+            });
+          }}
         />
         {/* skeleton loading in main map */}
         {/* {(loading.buses || loading.stops || !initialized) && (
@@ -613,7 +658,7 @@ export default function Index() {
               }}
             >
               <StopsPainelMenu
-                stops={(userMapZoom ?? 0) >= 15.4 ? stops : []}
+                stops={(userMapZoom ?? 0) >= STOPS_ZOOM_THRESHOLD ? stops : []}
                 selectedStopFromMap={selectedStopFromMap}
                 onStopSelected={() => setSelectedStopFromMap(null)}
               />
@@ -745,6 +790,30 @@ export default function Index() {
             <StopDetail
               stop={selectedStopForDetail}
               onBack={() => setSelectedStopForDetail(null)}
+            />
+          )}
+        </SafeAreaView>
+      </Modal>
+
+      {/* Floating bus route map modal (opened from bus popup on map) */}
+      <Modal
+        visible={selectedLineForRouteMap !== null}
+        transparent={false}
+        animationType="slide"
+        onRequestClose={() => {
+          setSelectedLineForRouteMap(null);
+          setSelectedBusForRouteMap(null);
+        }}
+      >
+        <SafeAreaView style={{ flex: 1 }}>
+          {selectedLineForRouteMap && (
+            <LineRouteMap
+              line={selectedLineForRouteMap}
+              focusedBus={selectedBusForRouteMap}
+              onBack={() => {
+                setSelectedLineForRouteMap(null);
+                setSelectedBusForRouteMap(null);
+              }}
             />
           )}
         </SafeAreaView>

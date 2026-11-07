@@ -50,21 +50,33 @@ export interface TrafficAlert {
 
 export interface BusStop {
   id: string;
-  codigo: string;
+  codigo: number;
   nome: string;
   descricao: string;
   latitude: number;
   longitude: number;
-  situacao?: string;
+  situacao?: boolean;
+}
+
+export interface BusStopDados {
+  id: number;
+  linParadas: string[]; // Array of "numero - sentido" strings (e.g., "0.011 - CIRCULAR")
 }
 
 export interface BusLine {
-  id: string;
-  codigo: string;
+  id: number;
+  linha: string;
   nome: string;
-  servico: string;
+  sentido: string;
+  tarifa: number;
   coordinates: [number, number][]; // [lng, lat] format
   tipo: 'LineString' | 'MultiLineString';
+}
+
+export interface BusLineV2 {
+  numero: string;
+  sentido: string;
+  geolinhas: { type: string; coordinates: [number, number][] }[];
 }
 
 export interface BusHorario {
@@ -81,6 +93,13 @@ export interface BusHorario {
   dt_final_vigencia?: string;
 }
 
+export interface BusHorarioV2 {
+  numero_linha: string;
+  sentido: string;
+  tempo_percurso: number;
+  horarios: string[];
+}
+
 export interface StopSchedule {
   stop: BusStop;
   lines: {
@@ -89,6 +108,29 @@ export interface StopSchedule {
   }[];
 }
 
+export interface StopScheduleV2 {
+  stop: BusStop;
+  lines: {
+    line: BusLine;
+    schedules: BusHorarioV2[];
+  }[];
+}
+
+export interface RealTimeArrivalEstimate {
+  bus: Bus;
+  etaMinutes: number;
+  distanceMeters: number;
+  speedKmh: number;
+  isApproaching: boolean;
+}
+
+export interface LineRealtimeArrivals {
+  line: BusLine;
+  arrivals: RealTimeArrivalEstimate[];
+}
+
+export type StopRealtimeArrivalsMap = Record<string, LineRealtimeArrivals>;
+
 export interface FrotaOperadora {
   id: string;
   dataReferencia: string;
@@ -96,6 +138,17 @@ export interface FrotaOperadora {
   operadora: string;
   numeroVeiculo: string;
   tipoOnibus: string;
+}
+
+export interface DadosNumerosVeiculos {
+  numero: string;
+  descricao: string;
+  sentido: string;
+  tarifa: string;
+  operadoras: {
+    id_operadora: number;
+    nome: string;
+  }
 }
 
 export interface MapBounds {
@@ -132,6 +185,8 @@ export interface UserLocation {
   longitude: number;
   accuracy?: number;
   timestamp: number;
+  speed?: number;
+  heading?: number | null;
 }
 
 export interface ApiResponse<T> {
@@ -162,7 +217,7 @@ export interface BusApiProperties {
 }
 
 // New bus position API response types
-export interface NewBusApiResponse {
+export interface NewBusGeoApiResponse {
   type: 'FeatureCollection';
   NomeOperadora: string;
   features: {
@@ -200,13 +255,39 @@ export interface StopApiProperties {
   tipo?: string;
 }
 
+export interface Stop2025ApiProperties {
+  id_ponto_parada_v2025: number;
+  id_ponto_parada_staging_two: number;
+  cod_parada_v2025: number;
+  latitude: number;
+  longitude: number;
+  endereco: string;
+  parada_ativa: boolean;
+  tipo_abrigo: string;
+}
+
+
 export interface LineApiProperties {
-  cd_linha?: string;
+  id: number;
   linha?: string;
-  servico?: string;
-  cd_linha_principal?: string;
-  codigo?: string;
-  cod_linha?: string;
+  sentido?: string;
+  nome: string;
+  tarifa?: number;
+  situacao?: string;
+  situacao_da_linha?: boolean;
+  id_linha?: number;
+  cd_linha?: string;
+  lin_sentido?: string;
+  tx_linha?: string;
+  vl_tarifa?: number;
+  fx_tarifaria?: string;
+  lin_extensao?: number;
+}
+
+export interface LineV2ApiProperties {
+  numero: string;
+  sentido: string;
+  geolinhas: { type: string; coordinates: [number, number][]; }[];
 }
 
 export interface FrotaApiProperties {
@@ -232,6 +313,24 @@ export interface HorarioApiProperties {
   dt_final_vigencia?: string;
 }
 
+export interface HorarioV2Api {
+  numero: string;
+  sentido: string;
+  tempo_percurso: number;
+  horarios: string[];
+}
+
+export interface NumerosDadosApiProperties {
+  numero: string;
+  descricao: string;
+  sentido: string;
+  tarifa: string;
+  operadoras: {
+    id_operadora: number;
+    nome: string;
+  }[];
+}
+
 // App configuration - geo is different than dados 
 export interface AppConfig {
   api: {
@@ -240,6 +339,7 @@ export interface AppConfig {
     endpoints: {
       geoOnibusPosicao: string;
       geoParadas: string;
+      geoParadas2025: string;
       geoLinhasEspaciais: string;
       geoFrotaOperadora: string;
       geoHorario: string;

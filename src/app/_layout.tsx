@@ -2,7 +2,7 @@ import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useState } from "react";
 import { SafeAreaView, StyleSheet, View } from "react-native";
 import BottomNavbar from "../components/NavBarComponent/bottom-navbar.component";
-import { apiService } from '../services/api';
+import { busService, frotaService, stopService } from '../services/api';
 import { useAppStore } from "../store";
 import Index from "./index";
 import Settings from "./settings";
@@ -10,36 +10,51 @@ import StopsMenu from './stopsMenu';
 
 const RootLayout = () => {
   const [activeTab, setActiveTab] = useState('map');
+  // Lazy mounting flags so we only mount other tabs when first accessed
+  const [mountedSettings, setMountedSettings] = useState(false);
+  const [mountedStops, setMountedStops] = useState(false);
   const { appTheme } = useAppStore();
+
+  useEffect(() => {
+    busService.startGlobalTelemetry(30000);
+    return () => {
+      busService.stopGlobalTelemetry();
+    };
+  }, []);
 
   // Pre-fetch essential data on mount and cache it
   useEffect(() => {
     const fetchData = async () => {
       await Promise.all([
-        apiService.getLinesCached().catch(console.error),
-        apiService.getHorarioCached().catch(console.error),
-        apiService.getFrotaCached().catch(console.error),
+        busService.getLinesCached().catch(console.error),
+        stopService.getHorarioV2Cached().catch(console.error),
+        frotaService.getFrotaCached().catch(console.error),
+        frotaService.getNumerosVeiculosCached().catch(console.error),
       ]);
     };
     fetchData();
   }, []);
 
-  const renderActiveScreen = () => {
-    switch (activeTab) {
-      case 'settings':
-        return <Settings />;
-      case 'stops':
-        return <StopsMenu />;
-      default:
-        return <Index />;
-    }
-  };
+  // Mark tabs as mounted when user first visits them
+  useEffect(() => {
+    if (activeTab === 'settings' && !mountedSettings) setMountedSettings(true);
+    if (activeTab === 'stops' && !mountedStops) setMountedStops(true);
+  }, [activeTab, mountedSettings, mountedStops]);
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style={appTheme === 'dark' ? 'light' : 'dark'} hidden={false} />
       <View style={styles.content}>
-        {renderActiveScreen()}
+        {/* Keep screens mounted to preserve internal state (Map, etc.) */}
+        <View style={[styles.screen, activeTab === 'map' && styles.screenVisible]}>
+          <Index />
+        </View>
+        <View style={[styles.screen, activeTab === 'settings' && styles.screenVisible]}>
+          {mountedSettings && <Settings />}
+        </View>
+        <View style={[styles.screen, activeTab === 'stops' && styles.screenVisible]}>
+          {mountedStops && <StopsMenu />}
+        </View>
       </View>
       <BottomNavbar onTabChange={setActiveTab} />
     </SafeAreaView>
@@ -53,6 +68,13 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
+  },
+  screen: {
+    flex: 1,
+    display: 'none',
+  },
+  screenVisible: {
+    display: 'flex',
   },
 });
 
